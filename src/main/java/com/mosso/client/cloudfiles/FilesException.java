@@ -3,9 +3,9 @@
  */
 package com.mosso.client.cloudfiles;
 
-import org.apache.commons.httpclient.Header;
-import org.apache.commons.httpclient.StatusLine;
-import org.apache.commons.httpclient.HttpException;
+import org.apache.http.Header;
+import org.apache.http.HttpException;
+import org.apache.http.StatusLine;
 
 /**
  * @author lvaughn
@@ -13,7 +13,7 @@ import org.apache.commons.httpclient.HttpException;
  */
 @SuppressWarnings("serial")
 public class FilesException extends HttpException {
-    private Header [] httpHeaders;
+    private Header[] httpHeaders;
     private StatusLine httpStatusLine;
 
     /**
@@ -51,7 +51,7 @@ public class FilesException extends HttpException {
     	
         StringBuffer httpHeaderString = new StringBuffer();
         for (Header h: httpHeaders)
-            httpHeaderString.append(h.toExternalForm());
+            httpHeaderString.append(h.getElements().toString());
 
         return httpHeaderString.toString();
     }
@@ -85,7 +85,7 @@ public class FilesException extends HttpException {
      */
     public String getHttpVersion ()
     {
-        return httpStatusLine == null ? null : httpStatusLine.getHttpVersion();
+        return httpStatusLine == null ? null : httpStatusLine.getProtocolVersion().getProtocol();
     }
 
 }

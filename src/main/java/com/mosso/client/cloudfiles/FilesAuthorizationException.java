@@ -4,8 +4,8 @@
 
 package com.mosso.client.cloudfiles;
 
-import org.apache.commons.httpclient.Header;
-import org.apache.commons.httpclient.StatusLine;
+import org.apache.http.Header;
+import org.apache.http.StatusLine;
 
 public class FilesAuthorizationException extends FilesException
 {
@@ -21,7 +21,7 @@ public class FilesAuthorizationException extends FilesException
      * @param httpHeaders    The returned HTTP headers
      * @param httpStatusLine The HTTP Status lined returned
      */
-    public FilesAuthorizationException(String message, Header [] httpHeaders, StatusLine httpStatusLine)
+    public FilesAuthorizationException(String message, Header[] httpHeaders, StatusLine httpStatusLine)
     {
     	super (message, httpHeaders, httpStatusLine);
     }

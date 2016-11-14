@@ -4,22 +4,21 @@
 
 package com.mosso.client.cloudfiles.sample;
 
-import org.apache.log4j.Logger;
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.cli.*;
-import org.apache.commons.httpclient.HttpException;
-
-import java.io.*;
-import java.security.NoSuchAlgorithmException;
-import java.util.*;
-
 import com.mosso.client.cloudfiles.*;
+import org.apache.commons.cli.*;
+import org.apache.commons.lang.StringUtils;
+import org.apache.http.HttpException;
+import org.apache.log4j.Logger;
+
+import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
+import java.util.List;
 
 public class FilesRemove
 {
 	private static final Logger logger = Logger.getLogger(FilesRemove.class);
 
-	public static void main (String args[]) throws NoSuchAlgorithmException, FilesException
+	public static void main (String args[]) throws NoSuchAlgorithmException, HttpException
 	{
 		//Build the command line options
 		Options options = addCommandLineOptions ();

@@ -4,24 +4,22 @@
 
 package com.mosso.client.cloudfiles.sample;
 
+import com.mosso.client.cloudfiles.*;
 import org.apache.commons.cli.*;
-import org.apache.commons.lang.SystemUtils;
-import org.apache.commons.lang.StringUtils;
 import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.httpclient.HttpException;
-
+import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang.SystemUtils;
+import org.apache.http.HttpException;
 import org.apache.log4j.Logger;
 
-import com.mosso.client.cloudfiles.FilesAuthorizationException;
-import com.mosso.client.cloudfiles.FilesClient;
-import com.mosso.client.cloudfiles.FilesConstants;
-import com.mosso.client.cloudfiles.FilesException;
-import com.mosso.client.cloudfiles.FilesObject;
-
-import java.io.*;
-import java.util.zip.*;
-import java.util.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
+import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 public class FilesCopy
 {
@@ -31,7 +29,7 @@ public class FilesCopy
 
 	private static File SYSTEM_TMP = SystemUtils.getJavaIoTmpDir();
 
-	public static void main (String args[]) throws NoSuchAlgorithmException, FilesException
+	public static void main (String args[]) throws NoSuchAlgorithmException, HttpException
 	{
 		//Build the command line options
 		Options options = addCommandLineOptions ();

@@ -4,8 +4,8 @@
 
 package com.mosso.client.cloudfiles;
 
+import org.apache.http.HttpException;
 import org.apache.log4j.Logger;
-import org.apache.commons.httpclient.HttpException;
 
 import java.io.*;
 import java.security.NoSuchAlgorithmException;
@@ -285,11 +285,11 @@ public class FilesObject
         this.container = container;
     }
     
-    public static FilesObject uploadObject(File obj, String mimeType, FilesContainer container)  throws IOException, FilesException {
+    public static FilesObject uploadObject(File obj, String mimeType, FilesContainer container) throws IOException, HttpException {
 		return uploadObject(obj, mimeType, container, null);
     }
 
-    public static FilesObject uploadObject(File obj, String mimeType, FilesContainer container, IFilesTransferCallback callback) throws IOException, FilesException {
+    public static FilesObject uploadObject(File obj, String mimeType, FilesContainer container, IFilesTransferCallback callback) throws IOException, HttpException {
     	FilesObject result = null;
     	try {
     		result = new FilesObject(obj, mimeType, container);

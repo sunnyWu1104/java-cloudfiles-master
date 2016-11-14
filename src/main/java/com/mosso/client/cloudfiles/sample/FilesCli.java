@@ -5,6 +5,7 @@
 package com.mosso.client.cloudfiles.sample;
 
 import com.mosso.client.cloudfiles.*;
+import org.apache.http.HttpException;
 
 import java.io.*;
 import java.text.DecimalFormat;
@@ -19,7 +20,7 @@ public class FilesCli {
 	FilesClient client = null;
 	BufferedReader console = new BufferedReader(new InputStreamReader(System.in));
 	
-	private boolean doLogin() {
+	private boolean doLogin() throws HttpException {
 		
 		try {
 //			System.out.print("Username: ");
@@ -357,28 +358,32 @@ public class FilesCli {
 	public static void main(String[] args) {
 
 		FilesCli commandLine = new FilesCli();
-		
-		if (commandLine.doLogin()) {
-			System.out.println("Type 'help' for assistance");
-			String cmd = "";
-			do {
-				String account = commandLine.client.getAccount();
-				account = (account == null) ? commandLine.client.getUserName() : account;
-				System.out.print(account + ": ");
-				try {
-					cmd = commandLine.console.readLine();
-				}
-				catch (IOException e) { 
-					cmd = "";
-				}
-				
-			} while(commandLine.evaluateCommand(cmd)); 
-			
-			System.exit(0);
-		}
-		else {
-			System.err.println("Login failed");
-			System.exit(-1);
+
+		try {
+			if (commandLine.doLogin()) {
+				System.out.println("Type 'help' for assistance");
+				String cmd = "";
+				do {
+					String account = commandLine.client.getAccount();
+					account = (account == null) ? commandLine.client.getUserName() : account;
+					System.out.print(account + ": ");
+					try {
+						cmd = commandLine.console.readLine();
+					}
+					catch (IOException e) {
+						cmd = "";
+					}
+
+				} while(commandLine.evaluateCommand(cmd));
+
+				System.exit(0);
+			}
+			else {
+				System.err.println("Login failed");
+				System.exit(-1);
+			}
+		} catch (HttpException e) {
+			e.printStackTrace();
 		}
 	}
 }
