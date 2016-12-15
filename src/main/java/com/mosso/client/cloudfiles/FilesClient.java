@@ -1,84 +1,21 @@
-/*
- * See COPYING for license information.
- */
-
 package com.mosso.client.cloudfiles;
 
-import org.apache.commons.codec.DecoderException;
-import org.apache.commons.codec.EncoderException;
-import org.apache.commons.codec.net.URLCodec;
+import com.alibaba.fastjson.JSON;
+import okhttp3.*;
 import org.apache.commons.lang.text.StrTokenizer;
-import org.apache.http.*;
-import org.apache.http.client.methods.*;
-import org.apache.http.client.utils.URIBuilder;
-import org.apache.http.config.SocketConfig;
-import org.apache.http.entity.ByteArrayEntity;
-import org.apache.http.entity.FileEntity;
-import org.apache.http.entity.HttpEntityWrapper;
-import org.apache.http.entity.InputStreamEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
-import org.apache.http.message.BasicNameValuePair;
 import org.apache.log4j.Logger;
-import org.w3c.dom.Document;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-import org.xml.sax.SAXException;
 
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
 import java.io.*;
 import java.math.BigInteger;
-import java.net.URISyntaxException;
+import java.net.FileNameMap;
+import java.net.URLConnection;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-/**
- * A client for Cloud Files.  Here follows a basic example of logging in, creating a container and an
- * object, retrieving the object, and then deleting both the object and container.  For more examples,
- * see the code in com.mosso.client.cloudfiles.sample, which contains a series of examples.
- * <p>
- * <pre>
- *
- *  //  Create the client object for username "jdoe", password "johnsdogsname".
- * 	FilesClient myClient = FilesClient("jdoe", "johnsdogsname");
- *
- *  // Log in (<code>login()</code> will return false if the login was unsuccessful.
- *  assert(myClient.login());
- *
- *  // Make sure there are no containers in the account
- *  assert(myClient.listContainers.length() == 0);
- *
- *  // Create the container
- *  assert(myClient.createContainer("myContainer"));
- *
- *  // Now we should have one
- *  assert(myClient.listContainers.length() == 1);
- *
- *  // Upload the file "alpaca.jpg"
- *  assert(myClient.storeObject("myContainer", new File("alapca.jpg"), "image/jpeg"));
- *
- *  // Download "alpaca.jpg"
- *  FilesObject obj = myClient.getObject("myContainer", "alpaca.jpg");
- *  byte data[] = obj.getObject();
- *
- *  // Clean up after ourselves.
- *  // Note:  Order here is important, you can't delete non-empty containers.
- *  assert(myClient.deleteObject("myContainer", "alpaca.jpg"));
- *  assert(myClient.deleteContainer("myContainer");
- * </pre>
- *
- * @author lvaughn
- * @see com.mosso.client.cloudfiles.sample.FilesCli
- * @see com.mosso.client.cloudfiles.sample.FilesAuth
- * @see com.mosso.client.cloudfiles.sample.FilesCopy
- * @see com.mosso.client.cloudfiles.sample.FilesList
- * @see com.mosso.client.cloudfiles.sample.FilesRemove
- * @see com.mosso.client.cloudfiles.sample.FilesMakeContainer
- */
 public class FilesClient {
 	public static final String VERSION = "v1";
 	public static int connectionTimeOut = 15000;
@@ -88,12 +25,11 @@ public class FilesClient {
 	private String account = "";
 	private String authenticationURL;
 	private String storageURL = null;
-	private String cdnManagementURL = null;
 	private String authToken = null;
 	private boolean isLoggedin = false;
-	private boolean useETag = true;
 
-	private CloseableHttpClient client = null;
+	OkHttpClient client = null;
+
 
 	private static Logger logger = Logger.getLogger(FilesClient.class);
 
@@ -110,23 +46,13 @@ public class FilesClient {
 		this.authenticationURL = url;
 		this.connectionTimeOut = connectionTimeOut;
 
-		PoolingHttpClientConnectionManager connManager = new PoolingHttpClientConnectionManager();
-		SocketConfig socketConfig = SocketConfig.custom()
-				.setTcpNoDelay(true)
-				.setSoTimeout(connectionTimeOut)
-				.build();
-
-		connManager.setDefaultSocketConfig(socketConfig);
-		client = HttpClients.custom()
-				.setConnectionManager(connManager)
-				.build();
+		client = new OkHttpClient();
 
 		if (logger.isDebugEnabled()) {
 			logger.debug("UserName: " + this.username);
 			logger.debug("AuthenticationURL: " + this.authenticationURL);
 			logger.debug("ConnectionTimeOut: " + this.connectionTimeOut);
 		}
-		//logger.debug("LGV:" + client.getHttpConnectionManager());
 	}
 
 	/**
@@ -170,1840 +96,167 @@ public class FilesClient {
 	 * Log in to CloudFiles.  This method performs the authentication and sets up the client's internal state.
 	 *
 	 * @return true if the login was successful, false otherwise.
-	 * @throws IOException   There was an IO error doing network communication
-	 * @throws HttpException There was an error with the http protocol
+	 * @throws IOException There was an IO error doing network communication
 	 */
-	public boolean login() throws IOException, HttpException {
-		HttpGet method = new HttpGet(authenticationURL);
-
-
-		method.setHeader(FilesConstants.X_STORAGE_USER, username);
-		method.setHeader(FilesConstants.X_STORAGE_PASS, password);
+	public boolean login() throws IOException {
+		Request request = new Request.Builder()
+				.url(authenticationURL)
+				.addHeader(FilesConstants.X_STORAGE_USER, username)
+				.addHeader(FilesConstants.X_STORAGE_PASS, password)
+				.build();
 
 		logger.debug("Logging in user: " + username + " using URL: " + authenticationURL);
 
-
-		FilesResponse response = new FilesResponse(client.execute(method), method);
-
-		if (response.loginSuccess()) {
+		Response response = client.newCall(request).execute();
+		if (response.isSuccessful()) {
 			isLoggedin = true;
-			storageURL = response.getStorageURL();
-			cdnManagementURL = response.getCDNManagementURL();
-			authToken = response.getAuthToken();
+			storageURL = response.header(FilesConstants.X_STORAGE_URL);
+			authToken = response.header(FilesConstants.X_AUTH_TOKEN);
 			logger.debug("storageURL: " + storageURL);
 			logger.debug("authToken: " + authToken);
-			logger.debug("cdnManagementURL:" + cdnManagementURL);
-			logger.debug("ConnectionManager:" + client.getConnectionManager());
 		}
-		method.releaseConnection();
-
 		return this.isLoggedin;
 	}
 
-	/**
-	 * List all of the containers available in an account, ordered by container name.
-	 *
-	 * @return null if the user is not logged in or the Account is not found.  A List of FSContainers with all of the containers in the account.
-	 * if there are no containers in the account, the list will be zero length.
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesContainerInfo> listContainersInfo() throws IOException, HttpException, FilesAuthorizationException, FilesException {
-		return listContainersInfo(-1, null);
-	}
-
-	/**
-	 * List the containers available in an account, ordered by container name.
-	 *
-	 * @param limit The maximum number of containers to return.  -1 returns an unlimited number.
-	 * @return null if the user is not logged in or the Account is not found.  A List of FSContainers with all of the containers in the account.
-	 * if there are no containers in the account, the list will be zero length.
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesContainerInfo> listContainersInfo(int limit) throws IOException, HttpException, FilesAuthorizationException, FilesException {
-		return listContainersInfo(limit, null);
-	}
-
-	/**
-	 * List the containers available in an account, ordered by container name.
-	 *
-	 * @param limit  The maximum number of containers to return.  -1 returns an unlimited number.
-	 * @param marker Return containers that occur after this lexicographically.
-	 * @return null if the user is not logged in or the Account is not found.  A List of FSContainers with all of the containers in the account.
-	 * if there are no containers in the account, the list will be zero length.
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesContainerInfo> listContainersInfo(int limit, String marker) throws IOException, HttpException, FilesAuthorizationException, FilesException {
-		if (!this.isLoggedin()) {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-		HttpGet method = null;
-		try {
-			method = new HttpGet(storageURL);
-
-			method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-			LinkedList<NameValuePair> parameters = new LinkedList<NameValuePair>();
-			if (limit > 0) {
-				parameters.add(new BasicNameValuePair("limit", String.valueOf(limit)));
-			}
-			if (marker != null) {
-				parameters.add(new BasicNameValuePair("marker", marker));
-			}
-			parameters.add(new BasicNameValuePair("format", "xml"));
-			FilesResponse response = new FilesResponse(client.execute(method), method);
-
-			if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-				method.removeHeaders(FilesConstants.X_AUTH_TOKEN);
-				if (login()) {
-					method = new HttpGet(storageURL);
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-					response = new FilesResponse(client.execute(method), method);
-				} else {
-					throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-				}
-			}
-
-			if (response.getStatusCode() == HttpStatus.SC_OK) {
-				DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-				DocumentBuilder builder = factory.newDocumentBuilder();
-				Document document = builder.parse(response.getResponseBodyAsStream());
-
-				NodeList nodes = document.getChildNodes();
-				Node accountNode = nodes.item(0);
-				if (!"account".equals(accountNode.getNodeName())) {
-					logger.error("Got unexpected type of XML");
-					return null;
-				}
-				ArrayList<FilesContainerInfo> containerList = new ArrayList<FilesContainerInfo>();
-				NodeList containerNodes = accountNode.getChildNodes();
-				for (int i = 0; i < containerNodes.getLength(); ++i) {
-					Node containerNode = containerNodes.item(i);
-					if (!"container".equals(containerNode.getNodeName())) continue;
-					String name = null;
-					int count = -1;
-					long size = -1;
-					NodeList objectData = containerNode.getChildNodes();
-					for (int j = 0; j < objectData.getLength(); ++j) {
-						Node data = objectData.item(j);
-						if ("name".equals(data.getNodeName())) {
-							name = data.getTextContent();
-						} else if ("bytes".equals(data.getNodeName())) {
-							size = Long.parseLong(data.getTextContent());
-						} else if ("count".equals(data.getNodeName())) {
-							count = Integer.parseInt(data.getTextContent());
-						} else {
-							logger.warn("Unexpected container-info tag:" + data.getNodeName());
-						}
-					}
-					if (name != null) {
-						FilesContainerInfo obj = new FilesContainerInfo(name, count, size);
-						containerList.add(obj);
-					}
-				}
-				return containerList;
-			} else if (response.getStatusCode() == HttpStatus.SC_NO_CONTENT) {
-				return new ArrayList<FilesContainerInfo>();
-			} else if (response.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-				throw new FilesNotFoundException("Account not Found", response.getResponseHeaders(), response.getStatusLine());
-			} else {
-				throw new FilesException("Unexpected Return Code", response.getResponseHeaders(), response.getStatusLine());
-			}
-		} catch (Exception ex) {
-			throw new FilesException("Unexpected problem, probably in parsing Server XML", ex);
-		} finally {
-			if (method != null)
-				method.releaseConnection();
-		}
-	}
-
-	/**
-	 * List the containers available in an account.
-	 *
-	 * @return null if the user is not logged in or the Account is not found.  A List of FilesContainer with all of the containers in the account.
-	 * if there are no containers in the account, the list will be zero length.
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesContainer> listContainers() throws IOException, HttpException, FilesAuthorizationException, FilesException {
+	public List<FilesContainer> listContainers() throws Exception {
 		return listContainers(-1, null);
 	}
 
-	/**
-	 * List the containers available in an account.
-	 *
-	 * @param limit The maximum number of containers to return.  -1 denotes no limit.
-	 * @return null if the user is not logged in or the Account is not found.  A List of FilesContainer with all of the containers in the account.
-	 * if there are no containers in the account, the list will be zero length.
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesContainer> listContainers(int limit) throws IOException, HttpException, FilesAuthorizationException, FilesException {
+	public List<FilesContainer> listContainers(int limit) throws Exception {
 		return listContainers(limit, null);
 	}
 
-	/**
-	 * List the containers available in an account.
-	 *
-	 * @param limit  The maximum number of containers to return.  -1 denotes no limit.
-	 * @param marker Only return containers after this container.  Null denotes starting at the beginning (lexicographically).
-	 * @return A List of FilesContainer with all of the containers in the account.
-	 * if there are no containers in the account, the list will be zero length.
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesContainer> listContainers(int limit, String marker) throws IOException, HttpException, FilesException {
-		if (!this.isLoggedin()) {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
+	private Response doHttp(Request request) throws Exception {
+		if (!isLoggedin) {
+			this.login();
 		}
-		HttpGet method = null;
+		request = request.newBuilder().addHeader(FilesConstants.X_AUTH_TOKEN, authToken).build();
+		Response response = client.newCall(request).execute();
+		if (response.isSuccessful()) {
+			return response;
+		} else if (response.code() == 401) {
+			this.login();
+			return client.newCall(request).execute();
+		} else {
+			throw new Exception(response.message());
+		}
+	}
+
+	public ArrayList<FilesContainer> listContainers(int limit, String marker) throws Exception {
 		try {
-			method = new HttpGet(storageURL);
-
-			method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-			LinkedList<NameValuePair> parameters = new LinkedList<NameValuePair>();
-
+			HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder();
 			if (limit > 0) {
-				parameters.add(new BasicNameValuePair("limit", String.valueOf(limit)));
+				urlBuilder.addQueryParameter("limit", String.valueOf(limit));
 			}
 			if (marker != null) {
-				parameters.add(new BasicNameValuePair("marker", marker));
+				urlBuilder.addQueryParameter("marker", marker);
 			}
+			Request request = new Request.Builder().get().url(urlBuilder.build()).build();
+			Response response = this.doHttp(request);
 
-			if (parameters.size() > 0) {
-				addParameters(method, parameters);
+			StrTokenizer tokenize = new StrTokenizer(response.body().string());
+			tokenize.setDelimiterString("\n");
+			String[] containers = tokenize.getTokenArray();
+			ArrayList<FilesContainer> containerList = new ArrayList<FilesContainer>();
+			for (String container : containers) {
+				containerList.add(new FilesContainer(container, this));
 			}
-
-
-			FilesResponse response = new FilesResponse(client.execute(method), method);
-
-			if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-				method.releaseConnection();
-				if (login()) {
-					method = new HttpGet(storageURL);
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-					if (parameters.size() > 0) {
-						addParameters(method, parameters);
-					}
-
-					response = new FilesResponse(client.execute(method), method);
-				} else {
-					throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-				}
-			}
-
-			if (response.getStatusCode() == HttpStatus.SC_OK) {
-				// logger.warn(method.getResponseCharSet());
-				StrTokenizer tokenize = new StrTokenizer(inputStreamToString(response.getResponseBodyAsStream(), null));
-				tokenize.setDelimiterString("\n");
-				String[] containers = tokenize.getTokenArray();
-				ArrayList<FilesContainer> containerList = new ArrayList<FilesContainer>();
-				for (String container : containers) {
-					containerList.add(new FilesContainer(container, this));
-				}
-				return containerList;
-			} else if (response.getStatusCode() == HttpStatus.SC_NO_CONTENT) {
-				return new ArrayList<FilesContainer>();
-			} else if (response.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-				throw new FilesNotFoundException("Account was not found", response.getResponseHeaders(), response.getStatusLine());
-			} else {
-				throw new FilesException("Unexpected resposne from server", response.getResponseHeaders(), response.getStatusLine());
-			}
-		} catch (Exception ex) {
-			throw new FilesException("Unexpected error, probably parsing Server XML", ex);
-		} finally {
-			if (method != null) method.releaseConnection();
+			return containerList;
+		} catch (Exception e) {
+			logger.error("Unexpected container-info tag:", e);
 		}
+		return null;
 	}
 
-	private HttpRequestBase addParameters(HttpRequestBase method, LinkedList<NameValuePair> parameters) throws URISyntaxException {
-		method.setURI(new URIBuilder(method.getURI())
-				.addParameters(parameters)
-				.build());
-		return method;
+
+	public List<FilesContainerInfo> listContainersInfo() throws Exception {
+		return listContainersInfo(-1, null);
 	}
 
-	/**
-	 * List all of the objects in a container with the given starting string.
-	 *
-	 * @param container  The container name
-	 * @param startsWith The string to start with
-	 * @param path       Only look for objects in this path
-	 * @param limit      Return at most <code>limit</code> objects
-	 * @param marker     Returns objects lexicographically greater than <code>marker</code>.  Used in conjunction with <code>limit</code> to paginate the list.
-	 * @return A list of FilesObjects starting with the given string
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesObject> listObjectsStaringWith(String container, String startsWith, String path, int limit, String marker) throws IOException, HttpException, FilesException {
-		if (!this.isLoggedin()) {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-		if (!isValidContianerName(container)) {
-			throw new FilesInvalidNameException(container);
-		}
-		HttpGet method = null;
-		try {
-			method = new HttpGet(storageURL + "/" + sanitizeForURI(container));
-
-			method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-			LinkedList<NameValuePair> parameters = new LinkedList<NameValuePair>();
-			parameters.add(new BasicNameValuePair("format", "xml"));
-			if (startsWith != null) {
-				parameters.add(new BasicNameValuePair(FilesConstants.LIST_CONTAINER_NAME_QUERY, startsWith));
-			}
-			if (path != null) {
-				parameters.add(new BasicNameValuePair("path", path));
-			}
-			if (limit > 0) {
-				parameters.add(new BasicNameValuePair("limit", String.valueOf(limit)));
-			}
-			if (marker != null) {
-				parameters.add(new BasicNameValuePair("marker", marker));
-			}
-
-			if (parameters.size() > 0) {
-				addParameters(method, parameters);
-			}
-
-			FilesResponse response = new FilesResponse(client.execute(method), method);
-
-			if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-				method.removeHeaders(FilesConstants.X_AUTH_TOKEN);
-				if (login()) {
-					method = new HttpGet(storageURL + "/" + sanitizeForURI(container));
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-					if (parameters.size() > 0) {
-						addParameters(method, parameters);
-					}
-
-					response = new FilesResponse(client.execute(method), method);
-				} else {
-					throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-				}
-			}
-
-			if (response.getStatusCode() == HttpStatus.SC_OK) {
-				DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-				DocumentBuilder builder = factory.newDocumentBuilder();
-				Document document = builder.parse(response.getResponseBodyAsStream());
-
-				NodeList nodes = document.getChildNodes();
-				Node containerList = nodes.item(0);
-				if (!"container".equals(containerList.getNodeName())) {
-					logger.error("Got unexpected type of XML");
-					return null;
-				}
-				ArrayList<FilesObject> objectList = new ArrayList<FilesObject>();
-				NodeList objectNodes = containerList.getChildNodes();
-				for (int i = 0; i < objectNodes.getLength(); ++i) {
-					Node objectNode = objectNodes.item(i);
-					if (!"object".equals(objectNode.getNodeName())) continue;
-					String name = null;
-					String eTag = null;
-					long size = -1;
-					String mimeType = null;
-					String lastModified = null;
-					NodeList objectData = objectNode.getChildNodes();
-					for (int j = 0; j < objectData.getLength(); ++j) {
-						Node data = objectData.item(j);
-						if ("name".equals(data.getNodeName())) {
-							name = data.getTextContent();
-						} else if ("content_type".equals(data.getNodeName())) {
-							mimeType = data.getTextContent();
-						} else if ("hash".equals(data.getNodeName())) {
-							eTag = data.getTextContent();
-						} else if ("bytes".equals(data.getNodeName())) {
-							size = Long.parseLong(data.getTextContent());
-						} else if ("last_modified".equals(data.getNodeName())) {
-							lastModified = data.getTextContent();
-						} else {
-							logger.warn("Unexpected tag:" + data.getNodeName());
-						}
-					}
-					if (name != null) {
-						FilesObject obj = new FilesObject(name, container, this);
-						if (eTag != null) obj.setMd5sum(eTag);
-						if (mimeType != null) obj.setMimeType(mimeType);
-						if (size > 0) obj.setSize(size);
-						if (lastModified != null) obj.setLastModified(lastModified);
-						objectList.add(obj);
-					}
-				}
-				return objectList;
-			} else if (response.getStatusCode() == HttpStatus.SC_NO_CONTENT) {
-				logger.debug("Container " + container + " has no Objects");
-				return new ArrayList<FilesObject>();
-			} else if (response.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-				throw new FilesNotFoundException("Container was not found", response.getResponseHeaders(), response.getStatusLine());
-			} else {
-				throw new FilesException("Unexpected Server Result", response.getResponseHeaders(), response.getStatusLine());
-			}
-		} catch (Exception ex) {
-			logger.error("Error parsing xml", ex);
-			throw new FilesException("Error parsing server resposne", ex);
-		} finally {
-			if (method != null) method.releaseConnection();
-		}
+	public List<FilesContainerInfo> listContainersInfo(int limit) throws Exception {
+		return listContainersInfo(limit, null);
 	}
 
-	/**
-	 * List the objects in a container in lexicographic order.
-	 *
-	 * @param container The container name
-	 * @return A list of FilesObjects starting with the given string
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesObject> listObjects(String container) throws IOException, HttpException, FilesAuthorizationException, FilesException {
+	public List<FilesContainerInfo> listContainersInfo(int limit, String marker) throws Exception {
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder();
+		if (limit > 0) {
+			urlBuilder.addQueryParameter("limit", String.valueOf(limit));
+		}
+		if (marker != null) {
+			urlBuilder.addQueryParameter("marker", marker);
+		}
+		urlBuilder.addQueryParameter("format", "json");
+		Request request = new Request.Builder().get().url(urlBuilder.build()).build();
+		Response response = this.doHttp(request);
+		List<FilesContainerInfo> containerList = JSON.parseArray(response.body().string(), FilesContainerInfo.class);
+
+		return containerList;
+	}
+
+	public List<FilesObject> listObjects(String container) throws Exception {
 		return listObjectsStaringWith(container, null, null, -1, null);
 	}
 
-	/**
-	 * List the objects in a container in lexicographic order.
-	 *
-	 * @param container The container name
-	 * @param limit     Return at most <code>limit</code> objects
-	 * @return A list of FilesObjects starting with the given string
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesObject> listObjects(String container, int limit) throws IOException, HttpException, FilesAuthorizationException, FilesException {
+	private void validContianerName(String name) throws Exception {
+		if (name == null) throw new Exception("name is null");
+		int length = name.length();
+		if (length == 0 || length > FilesConstants.CONTAINER_NAME_LENGTH)
+			throw new Exception("name too big,name too short");
+		if (name.indexOf('/') != -1)
+			throw new Exception("name contains /");
+	}
+
+	private void validObjectName(String name) throws Exception {
+		if (name == null) throw new Exception("name is null");
+		int length = name.length();
+		if (length == 0 || length > FilesConstants.OBJECT_NAME_LENGTH)
+			throw new Exception("name too big,name too short");
+		//if (name.indexOf('?') != -1) return false;
+	}
+
+	public List<FilesObject> listObjectsStaringWith(String container, String startsWith, String path, int limit, String marker) throws Exception {
+		validContianerName(container);
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container);
+		urlBuilder.addQueryParameter("format", "json");
+		if (startsWith != null) {
+			urlBuilder.addQueryParameter(FilesConstants.LIST_CONTAINER_NAME_QUERY, startsWith);
+		}
+		if (path != null) {
+			urlBuilder.addQueryParameter("path", path);
+		}
+		if (limit > 0) {
+			urlBuilder.addQueryParameter("limit", String.valueOf(limit));
+		}
+		if (marker != null) {
+			urlBuilder.addQueryParameter("marker", marker);
+		}
+		Request request = new Request.Builder().get().url(urlBuilder.build()).build();
+		Response response = this.doHttp(request);
+		List<FilesObject> objectList = JSON.parseArray(response.body().string(), FilesObject.class);
+		return objectList;
+	}
+
+	public List<FilesObject> listObjects(String container, int limit) throws Exception {
 		return listObjectsStaringWith(container, null, null, limit, null);
 	}
 
-	/**
-	 * List the objects in a container in lexicographic order.
-	 *
-	 * @param container The container name
-	 * @param path      Only look for objects in this path
-	 * @return A list of FilesObjects starting with the given string
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException There was another error in the request to the server.
-	 */
-	public List<FilesObject> listObjects(String container, String path) throws IOException, HttpException, FilesAuthorizationException, FilesException {
+	public List<FilesObject> listObjects(String container, String path) throws Exception {
 		return listObjectsStaringWith(container, null, path, -1, null);
 	}
 
-	/**
-	 * List the objects in a container in lexicographic order.
-	 *
-	 * @param container The container name
-	 * @param path      Only look for objects in this path
-	 * @param limit     Return at most <code>limit</code> objects
-	 * @param marker    Returns objects lexicographically greater than <code>marker</code>.  Used in conjunction with <code>limit</code> to paginate the list.
-	 * @return A list of FilesObjects starting with the given string
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesObject> listObjects(String container, String path, int limit) throws IOException, HttpException, FilesAuthorizationException, FilesException {
+	public List<FilesObject> listObjects(String container, String path, int limit) throws Exception {
 		return listObjectsStaringWith(container, null, path, limit, null);
 	}
 
-	/**
-	 * List the objects in a container in lexicographic order.
-	 *
-	 * @param container The container name
-	 * @param path      Only look for objects in this path
-	 * @param limit     Return at most <code>limit</code> objects
-	 * @param marker    Returns objects lexicographically greater than <code>marker</code>.  Used in conjunction with <code>limit</code> to paginate the list.
-	 * @return A list of FilesObjects starting with the given string
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException There was another error in the request to the server.
-	 */
-	public List<FilesObject> listObjects(String container, String path, int limit, String marker) throws IOException, HttpException, FilesAuthorizationException, FilesException {
+
+	public List<FilesObject> listObjects(String container, String path, int limit, String marker) throws Exception {
 		return listObjectsStaringWith(container, null, path, limit, marker);
 	}
 
-	/**
-	 * List the objects in a container in lexicographic order.
-	 *
-	 * @param container The container name
-	 * @param limit     Return at most <code>limit</code> objects
-	 * @param marker    Returns objects lexicographically greater than <code>marker</code>.  Used in conjunction with <code>limit</code> to paginate the list.
-	 * @return A list of FilesObjects starting with the given string
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public List<FilesObject> listObjects(String container, int limit, String marker) throws IOException, HttpException, FilesAuthorizationException, FilesException {
+	public List<FilesObject> listObjects(String container, int limit, String marker) throws Exception {
 		return listObjectsStaringWith(container, null, null, limit, marker);
 	}
 
-	/**
-	 * Convenience method to test for the existence of a container in Cloud Files.
-	 *
-	 * @param container
-	 * @return true if the container exists.  false otherwise.
-	 * @throws IOException
-	 * @throws IOException   There was an IO error doing network communication
-	 * @throws HttpException There was an error with the http protocol
-	 */
-	public boolean containerExists(String container) throws IOException, HttpException {
-		try {
-			this.getContainerInfo(container);
-			return true;
-		} catch (FilesException fnfe) {
-			return false;
-		}
-	}
-
-	/**
-	 * Gets information for the given account.
-	 *
-	 * @return The FilesAccountInfo with information about the number of containers and number of bytes used
-	 * by the given account.
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesException              There was another error in the request to the server.
-	 * @throws FilesAuthorizationException The client's login was invalid.
-	 */
-	public FilesAccountInfo getAccountInfo() throws IOException, HttpException, FilesAuthorizationException, FilesException {
-		if (this.isLoggedin()) {
-			HttpHead method = new HttpHead(storageURL);
-
-			method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-
-			FilesResponse response = new FilesResponse(client.execute(method), method);
-			if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-				method.removeHeaders(FilesConstants.X_AUTH_TOKEN);
-				if (login()) {
-					method = new HttpHead(storageURL);
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-					response = new FilesResponse(client.execute(method), method);
-				} else {
-					throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-				}
-			}
-
-			if (response.getStatusCode() == HttpStatus.SC_NO_CONTENT) {
-				int nContainers = response.getAccountContainerCount();
-				long totalSize = response.getAccountBytesUsed();
-				return new FilesAccountInfo(totalSize, nContainers);
-			} else {
-				throw new FilesException("Unexpected return from server", response.getResponseHeaders(), response.getStatusLine());
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-	/**
-	 * Get basic information on a container (number of items and the total size).
-	 *
-	 * @param container The container to get information for
-	 * @return ContainerInfo object of the container is present or null if its not present
-	 * @throws IOException                 There was a socket level exception while talking to CloudFiles
-	 * @throws HttpException               There was an protocol level exception while talking to Cloudfiles
-	 * @throws FilesNotFoundException      The container was not found
-	 * @throws FilesAuthorizationException The client was not logged in or the log in expired.
-	 */
-	public FilesContainerInfo getContainerInfo(String container) throws IOException, HttpException, FilesException {
-		if (this.isLoggedin()) {
-			if (isValidContianerName(container)) {
-
-				HttpHead method = null;
-				try {
-					method = new HttpHead(storageURL + "/" + sanitizeForURI(container));
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						method.removeHeaders(FilesConstants.X_AUTH_TOKEN);
-						if (login()) {
-							method = new HttpHead(storageURL + "/" + sanitizeForURI(container));
-
-							method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-							response = new FilesResponse(client.execute(method), method);
-						} else {
-							throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-						}
-					}
-
-					if (response.getStatusCode() == HttpStatus.SC_NO_CONTENT) {
-						int objCount = response.getContainerObjectCount();
-						long objSize = response.getContainerBytesUsed();
-						return new FilesContainerInfo(container, objCount, objSize);
-					} else if (response.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-						throw new FilesNotFoundException("Container not found: " + container, response.getResponseHeaders(), response.getStatusLine());
-					} else {
-						throw new FilesException("Unexpected result from server", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					if (method != null) method.releaseConnection();
-				}
-			} else {
-				throw new FilesInvalidNameException(container);
-			}
-		} else
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-	}
-
-
-	/**
-	 * Creates a container
-	 *
-	 * @param name The name of the container to be created
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesAuthorizationException The client was not property logged in
-	 * @throws FilesInvalidNameException   The container name was invalid
-	 */
-	public void createContainer(String name) throws IOException, HttpException, FilesAuthorizationException, FilesException {
-		if (this.isLoggedin()) {
-			if (isValidContianerName(name)) {
-				// logger.warn(name + ":" + sanitizeForURI(name));
-				HttpPut method = new HttpPut(storageURL + "/" + sanitizeForURI(name));
-
-				method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-				try {
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						method.releaseConnection();
-						if (login()) {
-							method = new HttpPut(storageURL + "/" + sanitizeForURI(name));
-
-							method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-							response = new FilesResponse(client.execute(method), method);
-						} else {
-							throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-						}
-					}
-
-					if (response.getStatusCode() == HttpStatus.SC_CREATED) {
-						return;
-					} else if (response.getStatusCode() == HttpStatus.SC_ACCEPTED) {
-						throw new FilesContainerExistsException(name, response.getResponseHeaders(), response.getStatusLine());
-					} else {
-						throw new FilesException("Unexpected Response", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					method.releaseConnection();
-				}
-			} else {
-				throw new FilesInvalidNameException(name);
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-	/**
-	 * Deletes a container
-	 *
-	 * @param name The name of the container
-	 * @throws IOException                     There was an IO error doing network communication
-	 * @throws HttpException                   There was an error with the http protocol
-	 * @throws FilesAuthorizationException     The user is not Logged in
-	 * @throws FilesInvalidNameException       The container name is invalid
-	 * @throws FilesNotFoundException          The container doesn't exist
-	 * @throws FilesContainerNotEmptyException The container was not empty
-	 */
-	public boolean deleteContainer(String name) throws IOException, HttpException, FilesAuthorizationException, FilesInvalidNameException, FilesNotFoundException, FilesContainerNotEmptyException {
-		if (this.isLoggedin()) {
-			if (isValidContianerName(name)) {
-				HttpDelete method = new HttpDelete(storageURL + "/" + sanitizeForURI(name));
-				try {
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						method.releaseConnection();
-						if (login()) {
-							method = new HttpDelete(storageURL + "/" + sanitizeForURI(name));
-
-							method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-							response = new FilesResponse(client.execute(method), method);
-						} else {
-							throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-						}
-					}
-
-					if (response.getStatusCode() == HttpStatus.SC_NO_CONTENT) {
-						logger.debug("Container Deleted : " + name);
-						return true;
-					} else if (response.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-						logger.debug("Container does not exist !");
-						throw new FilesNotFoundException("You can't delete an non-empty container", response.getResponseHeaders(), response.getStatusLine());
-					} else if (response.getStatusCode() == HttpStatus.SC_CONFLICT) {
-						logger.debug("Container is not empty, can not delete a none empty container !");
-						throw new FilesContainerNotEmptyException("You can't delete an non-empty container", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					method.releaseConnection();
-				}
-			} else {
-				throw new FilesInvalidNameException(name);
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-		return false;
-	}
-
-	/**
-	 * Enables access of files in this container via the Content Delivery Network.
-	 *
-	 * @param name The name of the container to enable
-	 * @return The CDN Url of the container
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException There was an error talking to the CDN Server.
-	 */
-	public String cdnEnableContainer(String name) throws IOException, HttpException, FilesException {
-		String returnValue = null;
-		if (this.isLoggedin()) {
-			if (isValidContianerName(name)) {
-				HttpPut method = null;
-				try {
-					method = new HttpPut(cdnManagementURL + "/" + sanitizeForURI(name));
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						method.releaseConnection();
-						if (login()) {
-							method = new HttpPut(cdnManagementURL + "/" + sanitizeForURI(name));
-
-							method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-							response = new FilesResponse(client.execute(method), method);
-						} else {
-							throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-						}
-					}
-
-					if (response.getStatusCode() == HttpStatus.SC_CREATED || response.getStatusCode() == HttpStatus.SC_ACCEPTED) {
-						returnValue = response.getCdnUrl();
-					} else if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						logger.warn("Unauthorized access");
-						throw new FilesAuthorizationException("User not Authorized!", response.getResponseHeaders(), response.getStatusLine());
-					} else {
-						throw new FilesException("Unexpected Server Response", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					method.releaseConnection();
-				}
-			} else {
-				throw new FilesInvalidNameException(name);
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-		return returnValue;
-	}
-
-	/**
-	 * Enables access of files in this container via the Content Delivery Network.
-	 *
-	 * @param name    The name of the container to enable
-	 * @param ttl     How long the CDN can use the content before checking for an update.  A negative value will result in this not being changed.
-	 * @param enabled True if this folder should be accessible, false otherwise
-	 * @return The CDN Url of the container
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException There was an error talking to the CDN Service
-	 */
-	/*
-	 * @param referrerAcl Unused for now
-     * @param userAgentACL Unused for now
-     */
-//    private String cdnUpdateContainer(String name, int ttl, boolean enabled, String referrerAcl, String userAgentACL) 
-	public String cdnUpdateContainer(String name, int ttl, boolean enabled)
-			throws IOException, HttpException, FilesException {
-		String returnValue = null;
-		if (this.isLoggedin()) {
-			if (isValidContianerName(name)) {
-				HttpPost method = null;
-				try {
-					method = new HttpPost(cdnManagementURL + "/" + sanitizeForURI(name));
-
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-					// TTL
-					if (ttl > 0) {
-						method.setHeader(FilesConstants.X_CDN_TTL, Integer.toString(ttl));
-					}
-					// Enabled
-					method.setHeader(FilesConstants.X_CDN_ENABLED, Boolean.toString(enabled));
-
-//  				// Referrer ACL
-//  				if(referrerAcl != null) {
-//  				method.setHeader(FilesConstants.X_CDN_REFERRER_ACL, referrerAcl);
-//  				}
-
-//  				// User Agent ACL
-//  				if(userAgentACL != null) {
-//  				method.setHeader(FilesConstants.X_CDN_USER_AGENT_ACL, userAgentACL);
-//  				}
-
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						method.releaseConnection();
-						if (login()) {
-							new HttpPost(cdnManagementURL + "/" + sanitizeForURI(name));
-
-							method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-							// TTL
-							if (ttl > 0) {
-								method.setHeader(FilesConstants.X_CDN_TTL, Integer.toString(ttl));
-							}
-							// Enabled
-							method.setHeader(FilesConstants.X_CDN_ENABLED, Boolean.toString(enabled));
-
-
-							response = new FilesResponse(client.execute(method), method);
-						} else {
-							throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-						}
-					}
-
-					if (response.getStatusCode() == HttpStatus.SC_ACCEPTED) {
-						returnValue = response.getCdnUrl();
-					} else if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						logger.warn("Unauthorized access");
-						throw new FilesAuthorizationException("User not Authorized!", response.getResponseHeaders(), response.getStatusLine());
-					} else {
-						throw new FilesException("Unexpected Server Response", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					if (method != null) {
-						method.releaseConnection();
-					}
-				}
-			} else {
-				throw new FilesInvalidNameException(name);
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-		return returnValue;
-	}
-
-   /* *
-    * Enables access of files in this container via the Content Delivery Network.
-    * 
-    * @param name The name of the container to enable
-    * @param ttl How long the CDN can use the content before checking for an update.  A negative value will result in this not being changed.
-    * @param enabled True if this folder should be accesible, false otherwise
-    * @return The CDN Url of the container
-    * @throws IOException   There was an IO error doing network communication
-    * @throws HttpException There was an error with the http protocol
-    * @throws FilesAuthorizationException Authentication failed
-    */
-//    public String cdnUpdateContainer(String name, int ttl, boolean enabled) throws IOException, HttpException, FilesAuthorizationException
-//    {
-//    	return cdnUpdateContainer(name, ttl, enabled, (String) null, (String) null);
-//    }
-
-	/**
-	 * Gets current CDN sharing status of the container
-	 *
-	 * @param name The name of the container to enable
-	 * @return Information on the container
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException There was an error talking to the CloudFiles Server
-	 */
-	public FilesCDNContainer getCDNContainerInfo(String container) throws IOException, HttpException, FilesException {
-		if (isLoggedin()) {
-			if (isValidContianerName(container)) {
-				HttpHead method = null;
-				try {
-					method = new HttpHead(cdnManagementURL + "/" + sanitizeForURI(container));
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						method.releaseConnection();
-						if (login()) {
-							method = new HttpHead(cdnManagementURL + "/" + sanitizeForURI(container));
-
-							method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-							response = new FilesResponse(client.execute(method), method);
-						} else {
-							throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-						}
-					}
-
-					if (response.getStatusCode() == HttpStatus.SC_NO_CONTENT) {
-						FilesCDNContainer result = new FilesCDNContainer(response.getCdnUrl());
-						result.setName(container);
-						for (Header hdr : response.getResponseHeaders()) {
-							String name = hdr.getName().toLowerCase();
-							if ("x-cdn-enabled".equals(name)) {
-								result.setEnabled(Boolean.valueOf(hdr.getValue()));
-							} else if ("x-ttl".equals(name)) {
-								result.setTtl(Integer.parseInt(hdr.getValue()));
-							}
-						}
-						return result;
-					} else if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						logger.warn("Unauthorized access");
-						throw new FilesAuthorizationException("User not Authorized!", response.getResponseHeaders(), response.getStatusLine());
-					} else {
-						throw new FilesException("Unexpected result from server: ", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					if (method != null) {
-						method.releaseConnection();
-					}
-				}
-			} else {
-				throw new FilesInvalidNameException(container);
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-    /* *
-     * Not currently used (but soon will be)
-     * @param container
-     */
-	//   public void purgeCDNContainer(String container) {
-///    	// Stub
-//    }
-    
-    /* *
-     * Not currently used (but soon will be)
-     * @param container
-     */
-//   public void purgeCDNObject(String container, String object) { 
-	//   	// Stub
-//    }
-
-	/**
-	 * Creates a path (but not any of the sub portions of the path)
-	 *
-	 * @param container The name of the container.
-	 * @param path      The name of the Path
-	 * @throws HttpException  There was an error at the protocol layer while talking to CloudFiles
-	 * @throws IOException    There was an error at the socket layer while talking to CloudFiles
-	 * @throws FilesException There was another error while taking to the CloudFiles server
-	 */
-	public void createPath(String container, String path) throws HttpException, IOException, FilesException {
-
-		if (!isValidContianerName(container))
-			throw new FilesInvalidNameException(container);
-		if (!isValidObjectName(path))
-			throw new FilesInvalidNameException(path);
-		storeObject(container, new byte[0], "application/directory", path,
-				new HashMap<String, String>());
-	}
-
-	/**
-	 * Create all of the path elements for the entire tree for a given path.  Thus, <code>createFullPath("myContainer", "foo/bar/baz")</code>
-	 * creates the paths "foo", "foo/bar" and "foo/bar/baz".
-	 *
-	 * @param container The name of the container
-	 * @param path      The full name of the path
-	 * @throws HttpException  There was an error at the protocol layer while talking to CloudFiles
-	 * @throws IOException    There was an error at the socket layer while talking to CloudFiles
-	 * @throws FilesException There was another error while taking to the CloudFiles server
-	 */
-	public void createFullPath(String container, String path) throws HttpException, IOException, FilesException {
-		String parts[] = path.split("/");
-
-		for (int i = 0; i < parts.length; ++i) {
-			StringBuilder sb = new StringBuilder();
-			for (int j = 0; j <= i; ++j) {
-				if (sb.length() != 0)
-					sb.append("/");
-				sb.append(parts[j]);
-			}
-			createPath(container, sb.toString());
-		}
-
-	}
-
-	/**
-	 * Gets the names of all of the containers associated with this account.
-	 *
-	 * @param limit The maximum number of container names to return
-	 * @return A list of container names
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public List<String> listCdnContainers(int limit) throws IOException, HttpException, FilesException, URISyntaxException {
-		return listCdnContainers(limit, null);
-	}
-
-	/**
-	 * Gets the names of all of the containers associated with this account.
-	 *
-	 * @return A list of container names
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public List<String> listCdnContainers() throws IOException, HttpException, FilesException, URISyntaxException {
-		return listCdnContainers(-1, null);
-	}
-
-
-	/**
-	 * Gets the names of all of the containers associated with this account.
-	 *
-	 * @param limit  The maximum number of container names to return
-	 * @param marker All of the results will come after <code>marker</code> lexicographically.
-	 * @return A list of container names
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public List<String> listCdnContainers(int limit, String marker) throws IOException, HttpException, FilesException, URISyntaxException {
-		if (this.isLoggedin()) {
-			HttpGet method = null;
-			try {
-				method = new HttpGet(cdnManagementURL);
-				method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-				LinkedList<NameValuePair> params = new LinkedList<NameValuePair>();
-				if (limit > 0) {
-					params.add(new BasicNameValuePair("limit", String.valueOf(limit)));
-				}
-				if (marker != null) {
-					params.add(new BasicNameValuePair("marker", marker));
-				}
-				if (params.size() > 0) {
-					addParameters(method, params);
-				}
-
-				FilesResponse response = new FilesResponse(client.execute(method), method);
-
-				if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-					method.releaseConnection();
-					if (login()) {
-						method = new HttpGet(cdnManagementURL);
-
-						method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-						if (params.size() > 0) {
-							addParameters(method, params);
-						}
-
-						response = new FilesResponse(client.execute(method), method);
-					} else {
-						throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-					}
-				}
-
-				if (response.getStatusCode() == HttpStatus.SC_OK) {
-					StrTokenizer tokenize = new StrTokenizer(inputStreamToString(response.getResponseBodyAsStream(), null));
-					tokenize.setDelimiterString("\n");
-					String[] containers = tokenize.getTokenArray();
-					List<String> returnValue = new ArrayList<String>();
-					for (String containerName : containers) {
-						returnValue.add(containerName);
-					}
-					return returnValue;
-				} else if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-					logger.warn("Unauthorized access");
-					throw new FilesAuthorizationException("User not Authorized!", response.getResponseHeaders(), response.getStatusLine());
-				} else {
-					throw new FilesException("Unexpected server response", response.getResponseHeaders(), response.getStatusLine());
-				}
-			} finally {
-				if (method != null) method.releaseConnection();
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-	/**
-	 * Gets list of all of the containers associated with this account.
-	 *
-	 * @return A list of containers
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public List<FilesCDNContainer> listCdnContainerInfo() throws IOException, HttpException, FilesException, URISyntaxException {
-		return listCdnContainerInfo(-1, null);
-	}
-
-	/**
-	 * Gets list of all of the containers associated with this account.
-	 *
-	 * @param limit The maximum number of container names to return
-	 * @return A list of containers
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public List<FilesCDNContainer> listCdnContainerInfo(int limit) throws IOException, HttpException, FilesException, URISyntaxException {
-		return listCdnContainerInfo(limit, null);
-	}
-
-	/**
-	 * Gets list of all of the containers associated with this account.
-	 *
-	 * @param limit  The maximum number of container names to return
-	 * @param marker All of the names will come after <code>marker</code> lexicographically.
-	 * @return A list of containers
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public List<FilesCDNContainer> listCdnContainerInfo(int limit, String marker) throws IOException, HttpException, FilesException, URISyntaxException {
-		if (this.isLoggedin()) {
-			HttpGet method = null;
-			try {
-				method = new HttpGet(cdnManagementURL);
-				method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-				LinkedList<NameValuePair> params = new LinkedList<NameValuePair>();
-				params.add(new BasicNameValuePair("format", "xml"));
-				if (limit > 0) {
-					params.add(new BasicNameValuePair("limit", String.valueOf(limit)));
-				}
-				if (marker != null) {
-					params.add(new BasicNameValuePair("marker", marker));
-				}
-				addParameters(method, params);
-
-
-				FilesResponse response = new FilesResponse(client.execute(method), method);
-
-				if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-					method.releaseConnection();
-					if (login()) {
-						method = new HttpGet(cdnManagementURL);
-
-						method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-						addParameters(method, params);
-
-
-						response = new FilesResponse(client.execute(method), method);
-					} else {
-						throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-					}
-				}
-
-				if (response.getStatusCode() == HttpStatus.SC_OK) {
-					DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-					DocumentBuilder builder = factory.newDocumentBuilder();
-					Document document = builder.parse(response.getResponseBodyAsStream());
-
-					NodeList nodes = document.getChildNodes();
-					Node accountNode = nodes.item(0);
-					if (!"account".equals(accountNode.getNodeName())) {
-						logger.error("Got unexpected type of XML");
-						return null;
-					}
-					ArrayList<FilesCDNContainer> containerList = new ArrayList<FilesCDNContainer>();
-					NodeList containerNodes = accountNode.getChildNodes();
-					for (int i = 0; i < containerNodes.getLength(); ++i) {
-						Node containerNode = containerNodes.item(i);
-						if (!"container".equals(containerNode.getNodeName())) continue;
-						FilesCDNContainer container = new FilesCDNContainer();
-						NodeList objectData = containerNode.getChildNodes();
-						for (int j = 0; j < objectData.getLength(); ++j) {
-							Node data = objectData.item(j);
-							if ("name".equals(data.getNodeName())) {
-								container.setName(data.getTextContent());
-							} else if ("cdn_url".equals(data.getNodeName())) {
-								container.setCdnURL(data.getTextContent());
-							} else if ("cdn_enabled".equals(data.getNodeName())) {
-								container.setEnabled(Boolean.parseBoolean(data.getTextContent()));
-							} else if ("ttl".equals(data.getNodeName())) {
-								container.setTtl(Integer.parseInt(data.getTextContent()));
-							} else {
-								//logger.warn("Unexpected container-info tag:" + data.getNodeName());
-							}
-						}
-						if (container.getName() != null) {
-							containerList.add(container);
-						}
-					}
-					return containerList;
-				} else if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-					logger.warn("Unauthorized access");
-					throw new FilesAuthorizationException("User not Authorized!", response.getResponseHeaders(), response.getStatusLine());
-				} else {
-					throw new FilesException("Unexpected server response", response.getResponseHeaders(), response.getStatusLine());
-				}
-			} catch (SAXException ex) {
-				// probably a problem parsing the XML
-				throw new FilesException("Problem parsing XML", ex);
-			} catch (ParserConfigurationException ex) {
-				// probably a problem parsing the XML
-				throw new FilesException("Problem parsing XML", ex);
-			} finally {
-				if (method != null) method.releaseConnection();
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-	/**
-	 * Store a file on the server
-	 *
-	 * @param container   The name of the container
-	 * @param obj         The File containing the file to copy over
-	 * @param contentType The MIME type of the file
-	 * @param name        The name of the file on the server
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public boolean storeObjectAs(String container, File obj, String contentType, String name) throws IOException, HttpException, FilesException {
-		return storeObjectAs(container, obj, contentType, name, new HashMap<String, String>(), null);
-	}
-
-	/**
-	 * Store a file on the server
-	 *
-	 * @param container   The name of the container
-	 * @param obj         The File containing the file to copy over
-	 * @param contentType The MIME type of the file
-	 * @param name        The name of the file on the server
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public boolean storeObjectAs(String container, File obj, String contentType, String name, IFilesTransferCallback callback) throws IOException, HttpException, FilesException {
-		return storeObjectAs(container, obj, contentType, name, new HashMap<String, String>(), callback);
-	}
-
-	/**
-	 * Store a file on the server, including metadata
-	 *
-	 * @param container   The name of the container
-	 * @param obj         The File containing the file to copy over
-	 * @param contentType The MIME type of the file
-	 * @param name        The name of the file on the server
-	 * @param metadata    A map with the metadata as key names and values as the metadata values
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesAuthorizationException
-	 */
-	public boolean storeObjectAs(String container, File obj, String contentType, String name, Map<String, String> metadata) throws IOException, HttpException, FilesException {
-		return storeObjectAs(container, obj, contentType, name, metadata, null);
-	}
-
-	/**
-	 * Store a file on the server, including metadata
-	 *
-	 * @param container   The name of the container
-	 * @param obj         The File containing the file to copy over
-	 * @param contentType The MIME type of the file
-	 * @param name        The name of the file on the server
-	 * @param metadata    A map with the metadata as key names and values as the metadata values
-	 * @param metadata    The callback object that will be called as the data is sent
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public boolean storeObjectAs(String container, File obj, String contentType, String name, Map<String, String> metadata, IFilesTransferCallback callback) throws IOException, HttpException, FilesException {
-		if (this.isLoggedin()) {
-			if (isValidContianerName(container) && isValidObjectName(name)) {
-				if (!obj.exists()) {
-					throw new FileNotFoundException(name + " does not exist");
-				}
-
-				if (obj.isDirectory()) {
-					throw new IOException("The alleged file was a directory");
-				}
-
-				HttpPut method = null;
-				try {
-					method = new HttpPut(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(name));
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-					if (useETag) {
-						method.setHeader(FilesConstants.E_TAG, md5Sum(obj));
-					}
-					method.setEntity(new HttpEntityWrapper(new FileEntity(obj, contentType)));
-					for (String key : metadata.keySet()) {
-						method.setHeader(FilesConstants.X_OBJECT_META + key, sanitizeForURI(metadata.get(key)));
-					}
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						method.releaseConnection();
-						if (login()) {
-							method = new HttpPut(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(name));
-
-							method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-							if (useETag) {
-								method.setHeader(FilesConstants.E_TAG, md5Sum(obj));
-							}
-							method.setEntity(new HttpEntityWrapper(new FileEntity(obj, contentType)));
-							for (String key : metadata.keySet()) {
-								method.setHeader(FilesConstants.X_OBJECT_META + key, sanitizeForURI(metadata.get(key)));
-							}
-
-							response = new FilesResponse(client.execute(method), method);
-						} else {
-							throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-						}
-					}
-					if (response.getStatusCode() == HttpStatus.SC_CREATED) {
-						return true;
-					} else if (response.getStatusCode() == HttpStatus.SC_PRECONDITION_FAILED) {
-						throw new FilesException("Etag missmatch", response.getResponseHeaders(), response.getStatusLine());
-					} else if (response.getStatusCode() == HttpStatus.SC_LENGTH_REQUIRED) {
-						throw new FilesException("Length miss-match", response.getResponseHeaders(), response.getStatusLine());
-					} else {
-						throw new FilesException("Unexpected Server Response", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					if (method != null) method.releaseConnection();
-				}
-			} else {
-				if (!isValidObjectName(name)) {
-					throw new FilesInvalidNameException(name);
-				} else {
-					throw new FilesInvalidNameException(container);
-				}
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-
-	/**
-	 * Copies the file to Cloud Files, keeping the original file name in Cloud Files.
-	 *
-	 * @param container   The name of the container to place the file in
-	 * @param obj         The File to transfer
-	 * @param contentType The file's MIME type
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public boolean storeObject(String container, File obj, String contentType) throws IOException, HttpException, FilesException {
-		return storeObjectAs(container, obj, contentType, obj.getName());
-	}
-
-	/**
-	 * Store a file on the server, including metadata
-	 *
-	 * @param container   The name of the container
-	 * @param obj         The File containing the file to copy over
-	 * @param contentType The MIME type of the file
-	 * @param name        The name of the file on the server
-	 * @param metadata    A map with the metadata as key names and values as the metadata values
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public boolean storeObject(String container, byte obj[], String contentType, String name, Map<String, String> metadata) throws IOException, HttpException, FilesException {
-		return storeObject(container, obj, contentType, name, metadata, null);
-	}
-
-	/**
-	 * Store a file on the server, including metadata
-	 *
-	 * @param container   The name of the container
-	 * @param obj         The File containing the file to copy over
-	 * @param contentType The MIME type of the file
-	 * @param name        The name of the file on the server
-	 * @param metadata    A map with the metadata as key names and values as the metadata values
-	 * @param callback    The object to which any callbacks will be sent (null if you don't want callbacks)
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public boolean storeObject(String container, byte obj[], String contentType, String name, Map<String, String> metadata, IFilesTransferCallback callback) throws IOException, HttpException, FilesException {
-		if (this.isLoggedin()) {
-			String objName = name;
-			if (isValidContianerName(container) && isValidObjectName(objName)) {
-
-				HttpPut method = null;
-				try {
-					method = new HttpPut(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(objName));
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-					if (useETag) {
-						method.setHeader(FilesConstants.E_TAG, md5Sum(obj));
-					}
-					method.setEntity(new ByteArrayEntity(obj));
-					for (String key : metadata.keySet()) {
-						// logger.warn("Key:" + key + ":" + sanitizeForURI(metadata.get(key)));
-						method.setHeader(FilesConstants.X_OBJECT_META + key, sanitizeForURI(metadata.get(key)));
-					}
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						method.releaseConnection();
-						if (login()) {
-							method = new HttpPut(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(objName));
-
-							method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-							if (useETag) {
-								method.setHeader(FilesConstants.E_TAG, md5Sum(obj));
-							}
-							method.setEntity(new ByteArrayEntity(obj));
-							for (String key : metadata.keySet()) {
-								method.setHeader(FilesConstants.X_OBJECT_META + key, sanitizeForURI(metadata.get(key)));
-							}
-
-							response = new FilesResponse(client.execute(method), method);
-						} else {
-							throw new FilesAuthorizationException("Re-login failed", response.getResponseHeaders(), response.getStatusLine());
-						}
-					}
-
-					if (response.getStatusCode() == HttpStatus.SC_CREATED) {
-						return true;
-					} else if (response.getStatusCode() == HttpStatus.SC_PRECONDITION_FAILED) {
-						throw new FilesException("Etag missmatch", response.getResponseHeaders(), response.getStatusLine());
-					} else if (response.getStatusCode() == HttpStatus.SC_LENGTH_REQUIRED) {
-						throw new FilesException("Length miss-match", response.getResponseHeaders(), response.getStatusLine());
-					} else {
-						throw new FilesException("Unexpected Server Response", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					if (method != null) method.releaseConnection();
-				}
-			} else {
-				if (!isValidObjectName(objName)) {
-					throw new FilesInvalidNameException(objName);
-				} else {
-					throw new FilesInvalidNameException(container);
-				}
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-	/**
-	 * Store a file on the server, including metadata, with the contents coming from an input stream.  This allows you to
-	 * not know the entire length of your content when you start to write it.  Nor do you have to hold it entirely in memory
-	 * at the same time.
-	 *
-	 * @param container   The name of the container
-	 * @param data        Any object that implements InputStream
-	 * @param contentType The MIME type of the file
-	 * @param name        The name of the file on the server
-	 * @param metadata    A map with the metadata as key names and values as the metadata values
-	 * @param callback    The object to which any callbacks will be sent (null if you don't want callbacks)
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public boolean storeStreamedObject(String container, InputStream data, String contentType, String name, Map<String, String> metadata) throws IOException, HttpException, FilesException {
-		if (this.isLoggedin()) {
-			String objName = name;
-			if (isValidContianerName(container) && isValidObjectName(objName)) {
-				HttpPut method = new HttpPut(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(objName));
-
-				method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-				method.setEntity(new InputStreamEntity(data));
-				for (String key : metadata.keySet()) {
-					// logger.warn("Key:" + key + ":" + sanitizeForURI(metadata.get(key)));
-					method.setHeader(FilesConstants.X_OBJECT_META + key, sanitizeForURI(metadata.get(key)));
-				}
-
-				try {
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_CREATED) {
-						logger.debug("Object stored : " + name);
-						return true;
-					} else {
-						logger.error(response.getStatusLine());
-						throw new FilesException("Unexpected result", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					method.releaseConnection();
-				}
-			} else {
-				if (!isValidObjectName(objName)) {
-					throw new FilesInvalidNameException(objName);
-				} else {
-					throw new FilesInvalidNameException(container);
-				}
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-	/**
-	 * @param container The name of the container
-	 * @param name      The name of the object
-	 * @param entity    The name of the request entity (make sure to set the Content-Type
-	 * @param metadata  The metadata for the object
-	 * @param md5sum    The 32 character hex encoded MD5 sum of the data
-	 * @return True of the save was successful
-	 * @throws IOException    There was a socket level exception talking to CloudFiles
-	 * @throws HttpException  There was a protocol level error talking to CloudFiles
-	 * @throws FilesException There was an error talking to CloudFiles.
-	 */
-	public boolean storeObjectAs(String container, String name, HttpEntity entity, Map<String, String> metadata, String md5sum) throws IOException, HttpException, FilesException {
-		if (this.isLoggedin()) {
-			String objName = name;
-			if (isValidContianerName(container) && isValidObjectName(objName)) {
-				HttpPut method = new HttpPut(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(objName));
-				method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-				method.setEntity(entity);
-				if (useETag && md5sum != null) {
-					method.setHeader(FilesConstants.E_TAG, md5sum);
-				}
-				method.setHeader("Content-Type", entity.getContentType().getValue());
-
-				for (String key : metadata.keySet()) {
-					method.setHeader(FilesConstants.X_OBJECT_META + key, sanitizeForURI(metadata.get(key)));
-				}
-
-				try {
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-					if (response.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
-						login();
-						method = new HttpPut(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(objName));
-
-						method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-						method.setEntity(entity);
-						method.setHeader("Content-Type", entity.getContentType().getValue());
-						for (String key : metadata.keySet()) {
-							method.setHeader(FilesConstants.X_OBJECT_META + key, sanitizeForURI(metadata.get(key)));
-						}
-
-						response = new FilesResponse(client.execute(method), method);
-					}
-
-					if (response.getStatusCode() == HttpStatus.SC_CREATED) {
-						logger.debug("Object stored : " + name);
-						return true;
-					} else {
-						logger.debug(response.getStatusLine());
-						throw new FilesException("Unexpected result", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					method.releaseConnection();
-				}
-			} else {
-				if (!isValidObjectName(objName)) {
-					throw new FilesInvalidNameException(objName);
-				} else {
-					throw new FilesInvalidNameException(container);
-				}
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-	/**
-	 * Delete the given object from it's container.
-	 *
-	 * @param container The container name
-	 * @param objName   The object name
-	 * @return FilesConstants.OBJECT_DELETED
-	 * @throws IOException    There was an IO error doing network communication
-	 * @throws HttpException  There was an error with the http protocol
-	 * @throws FilesException
-	 */
-	public void deleteObject(String container, String objName) throws IOException, HttpException, FilesException {
-		if (this.isLoggedin()) {
-			if (isValidContianerName(container) && isValidObjectName(objName)) {
-				HttpDelete method = null;
-				try {
-					method = new HttpDelete(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(objName));
-
-					method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-					FilesResponse response = new FilesResponse(client.execute(method), method);
-
-					if (response.getStatusCode() == HttpStatus.SC_NO_CONTENT) {
-						logger.debug("Object Deleted : " + objName);
-					} else if (response.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-						throw new FilesNotFoundException("Object was not found " + objName, response.getResponseHeaders(), response.getStatusLine());
-					} else {
-						throw new FilesException("Unexpected status from server", response.getResponseHeaders(), response.getStatusLine());
-					}
-				} finally {
-					if (method != null) method.releaseConnection();
-				}
-			} else {
-				if (!isValidObjectName(objName)) {
-					throw new FilesInvalidNameException(objName);
-				} else {
-					throw new FilesInvalidNameException(container);
-				}
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-	}
-
-	/**
-	 * Get an object's metadata
-	 *
-	 * @param container The name of the container
-	 * @param objName   The name of the object
-	 * @return The object's metadata
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesAuthorizationException The Client's Login was invalid.
-	 * @throws FilesInvalidNameException   The container or object name was not valid
-	 */
-	public FilesObjectMetaData getObjectMetaData(String container, String objName) throws IOException, HttpException, FilesAuthorizationException, FilesInvalidNameException {
-		FilesObjectMetaData metaData;
-		if (this.isLoggedin()) {
-			if (isValidContianerName(container) && isValidObjectName(objName)) {
-				HttpHead method = new HttpHead(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(objName));
-
-				method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-
-				FilesResponse response = new FilesResponse(client.execute(method), method);
-
-				if (response.getStatusCode() == HttpStatus.SC_NO_CONTENT) {
-					logger.debug("Object metadata retreived  : " + objName);
-					String mimeType = response.getContentType();
-					String lastModified = response.getLastModified();
-					String eTag = response.getETag();
-					String contentLength = response.getContentLength();
-
-					metaData = new FilesObjectMetaData(mimeType, contentLength, eTag, lastModified);
-
-					Header[] headers = response.getResponseHeaders();
-					HashMap<String, String> headerMap = new HashMap<String, String>();
-
-					for (Header h : headers) {
-						if (h.getName().startsWith(FilesConstants.X_OBJECT_META)) {
-							headerMap.put(h.getName().substring(FilesConstants.X_OBJECT_META.length()), unencodeURI(h.getValue()));
-						}
-					}
-					if (headerMap.size() > 0)
-						metaData.setMetaData(headerMap);
-
-					return metaData;
-				} else if (response.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-					logger.info("Object " + objName + " was not found  !");
-					return null;
-				}
-
-				method.releaseConnection();
-			} else {
-				if (!isValidObjectName(objName)) {
-					throw new FilesInvalidNameException(objName);
-				} else {
-					throw new FilesInvalidNameException(container);
-				}
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-		return null;
-	}
-
-
-	/**
-	 * Get the content of the given object
-	 *
-	 * @param container The name of the container
-	 * @param objName   The name of the object
-	 * @return The content of the object
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesAuthorizationException
-	 * @throws FilesInvalidNameException
-	 * @throws FilesNotFoundException
-	 */
-	public byte[] getObject(String container, String objName) throws IOException, HttpException, FilesAuthorizationException, FilesInvalidNameException, FilesNotFoundException {
-		if (this.isLoggedin()) {
-			if (isValidContianerName(container) && isValidObjectName(objName)) {
-				HttpGet method = new HttpGet(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(objName));
-
-				method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-
-				FilesResponse response = new FilesResponse(client.execute(method), method);
-
-				if (response.getStatusCode() == HttpStatus.SC_OK) {
-					logger.debug("Object data retreived  : " + objName);
-					return input2byte(response.getResponseBodyAsStream());
-				} else if (response.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-					throw new FilesNotFoundException("Container: " + container + " did not have object " + objName, response.getResponseHeaders(), response.getStatusLine());
-				}
-
-				method.releaseConnection();
-			} else {
-				if (!isValidObjectName(objName)) {
-					throw new FilesInvalidNameException(objName);
-				} else {
-					throw new FilesInvalidNameException(container);
-				}
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-		return null;
-	}
-
-	/**
-	 * Get's the given object's content as a stream
-	 *
-	 * @param container The name of the container
-	 * @param objName   The name of the object
-	 * @return An input stream that will give the objects content when read from.
-	 * @throws IOException                 There was an IO error doing network communication
-	 * @throws HttpException               There was an error with the http protocol
-	 * @throws FilesAuthorizationException
-	 * @throws FilesInvalidNameException
-	 */
-	public InputStream getObjectAsStream(String container, String objName) throws IOException, HttpException, FilesAuthorizationException, FilesInvalidNameException {
-		if (this.isLoggedin()) {
-			if (isValidContianerName(container) && isValidObjectName(objName)) {
-				if (objName.length() > FilesConstants.OBJECT_NAME_LENGTH) {
-					logger.warn("Object Name supplied was truncated to Max allowed of " + FilesConstants.OBJECT_NAME_LENGTH + " characters !");
-					objName = objName.substring(0, FilesConstants.OBJECT_NAME_LENGTH);
-					logger.warn("Truncated Object Name is: " + objName);
-				}
-
-				HttpGet method = new HttpGet(storageURL + "/" + sanitizeForURI(container) + "/" + sanitizeForURI(objName));
-
-				method.setHeader(FilesConstants.X_AUTH_TOKEN, authToken);
-
-
-				FilesResponse response = new FilesResponse(client.execute(method), method);
-
-				if (response.getStatusCode() == HttpStatus.SC_OK) {
-					logger.info("Object data retreived  : " + objName);
-					return response.getResponseBodyAsStream();
-				} else if (response.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-					logger.info("Object " + objName + " was not found  !");
-					return null;
-				}
-
-				method.releaseConnection();
-			} else {
-				if (!isValidObjectName(objName)) {
-					throw new FilesInvalidNameException(objName);
-				} else {
-					throw new FilesInvalidNameException(container);
-				}
-			}
-		} else {
-			throw new FilesAuthorizationException("You must be logged in", null, null);
-		}
-		return null;
-	}
-
-	/**
-	 * Utility function to write an InputStream to a file
-	 *
-	 * @param is
-	 * @param f
-	 * @throws IOException
-	 */
-	static void writeInputStreamToFile(InputStream is, File f) throws IOException {
-		BufferedOutputStream bf = new BufferedOutputStream(new FileOutputStream(f));
-		byte[] buffer = new byte[1024];
-		int read = 0;
-
-		while ((read = is.read(buffer)) > 0) {
-			bf.write(buffer, 0, read);
-		}
-
-		is.close();
-		bf.flush();
-		bf.close();
-	}
-
-	public static final byte[] input2byte(InputStream inStream)
-			throws IOException {
-		ByteArrayOutputStream swapStream = new ByteArrayOutputStream();
-		byte[] buff = new byte[100];
-		int rc = 0;
-		while ((rc = inStream.read(buff, 0, 100)) > 0) {
-			swapStream.write(buff, 0, rc);
-		}
-		byte[] in2b = swapStream.toByteArray();
-		return in2b;
-	}
-
-	/**
-	 * Reads an input stream into a stream
-	 *
-	 * @param is The input stream
-	 * @return The contents of the stream stored in a string.
-	 * @throws IOException
-	 */
-	static String inputStreamToString(InputStream stream, String encoding) throws IOException {
-		char buffer[] = new char[4096];
-		StringBuilder sb = new StringBuilder();
-		InputStreamReader isr = new InputStreamReader(stream, "utf-8"); // For now, assume utf-8 to work around server bug
-
-		int nRead = 0;
-		while ((nRead = isr.read(buffer)) >= 0) {
-			sb.append(buffer, 0, nRead);
-		}
-		isr.close();
-
-		return sb.toString();
-	}
-
-	/**
-	 * Calculates the MD5 checksum of a file, returned as a hex encoded string
-	 *
-	 * @param f The file
-	 * @return The MD5 checksum, as a base 16 encoded string
-	 * @throws IOException
-	 */
 	public static String md5Sum(File f) throws IOException {
 		MessageDigest digest;
 		try {
@@ -2033,190 +286,190 @@ public class FilesClient {
 		}
 	}
 
-	/**
-	 * Calculates the MD5 checksum of an array of data
-	 *
-	 * @param data The data to checksum
-	 * @return The checksum, represented as a base 16 encoded string.
-	 * @throws IOException
-	 */
-	public static String md5Sum(byte[] data) throws IOException {
-		try {
-			MessageDigest digest = MessageDigest.getInstance("MD5");
-			byte[] md5sum = digest.digest(data);
-			BigInteger bigInt = new BigInteger(1, md5sum);
+	public void createContainer(String container) throws Exception {
+		validContianerName(container);
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container);
+		Request request = new Request.Builder().url(urlBuilder.build()).put(RequestBody.create(MediaType.parse("text/plan"), container)).build();
+		Response response = this.doHttp(request);
+		if (!response.isSuccessful()) {
+			throw new Exception(response.message());
+		}
+	}
 
-			// Front load any zeros cut off by BigInteger
-			String md5 = bigInt.toString(16);
-			while (md5.length() != 32) {
-				md5 = "0" + md5;
+	public boolean deleteContainer(String container) throws Exception {
+		validContianerName(container);
+
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container);
+		Request request = new Request.Builder().url(urlBuilder.build()).delete(RequestBody.create(MediaType.parse("text/plan"), container)).build();
+		Response response = this.doHttp(request);
+		if (!response.isSuccessful()) {
+			throw new Exception(response.message());
+		}
+		return true;
+	}
+
+	public byte[] getObject(String container, String objName) throws Exception {
+		validContianerName(container);
+		validObjectName(objName);
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container).addPathSegment(objName);
+		Request request = new Request.Builder().url(urlBuilder.build()).get().build();
+		Response response = this.doHttp(request);
+		if (!response.isSuccessful()) {
+			throw new Exception(response.message());
+		}
+		return response.body().bytes();
+	}
+
+	public InputStream getObjectAsStream(String container, String objName) throws Exception {
+		validContianerName(container);
+		validObjectName(objName);
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container).addPathSegment(objName);
+		Request request = new Request.Builder().url(urlBuilder.build()).get().build();
+		Response response = this.doHttp(request);
+		if (!response.isSuccessful()) {
+			throw new Exception(response.message());
+		}
+		return response.body().byteStream();
+	}
+
+
+	public void deleteObject(String container, String objName) throws Exception {
+		validContianerName(container);
+		validObjectName(objName);
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container).addPathSegment(objName);
+		Request request = new Request.Builder().url(urlBuilder.build()).delete().build();
+		Response response = this.doHttp(request);
+		if (!response.isSuccessful()) {
+			throw new Exception(response.message());
+		}
+	}
+
+	public boolean storeObjectAs(String container, File obj, String contentType, String name) throws Exception {
+		return storeObjectAs(container, obj, contentType, name, new HashMap<String, String>(), null);
+	}
+
+	public boolean storeObjectAs(String container, File obj, String contentType, String name, IFilesTransferCallback callback) throws Exception {
+		return storeObjectAs(container, obj, contentType, name, new HashMap<String, String>(), callback);
+	}
+
+	public boolean storeObjectAs(String container, File obj, String contentType, String name, Map<String, String> metadata) throws Exception {
+		return storeObjectAs(container, obj, contentType, name, metadata, null);
+	}
+
+	public boolean storeObjectAs(String container, File obj, String contentType, String name, Map<String, String> metadata, IFilesTransferCallback callback) throws Exception {
+		validContianerName(container);
+		validObjectName(name);
+
+		if (!obj.exists()) {
+			throw new FileNotFoundException(name + " does not exist");
+		}
+
+		if (obj.isDirectory()) {
+			throw new IOException("The alleged file was a directory");
+		}
+
+		Map<String, String> map = new HashMap<>();
+		for (String key : metadata.keySet()) {
+			map.put(FilesConstants.X_OBJECT_META + key, metadata.get(key));
+		}
+
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container).addPathSegment(name);
+		Request request = new Request.Builder()
+				.url(urlBuilder.build())
+				.put(RequestBody.create(MediaType.parse(contentType), obj))
+				.headers(Headers.of(map))
+				.build();
+
+		Response response = this.doHttp(request);
+		if (!response.isSuccessful()) {
+			throw new Exception(response.message());
+		}
+		return true;
+	}
+
+	public FilesObjectMetaData getObjectMetaData(String container, String objName) throws Exception {
+		FilesObjectMetaData metaData = null;
+		validContianerName(container);
+		validObjectName(objName);
+
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container).addPathSegment(objName);
+		Request request = new Request.Builder()
+				.url(urlBuilder.build())
+				.get()
+				.build();
+		Response response = this.doHttp(request);
+		if (response.isSuccessful()) {
+
+			String mimeType = response.body().contentType().type();
+			String lastModified = response.header("Last-Modified");
+			String eTag = response.header(FilesConstants.E_TAG);
+			String contentLength = response.header("Content-Length");
+
+			metaData = new FilesObjectMetaData(mimeType, contentLength, eTag, lastModified);
+
+			Map<String, String> map = new HashMap<>();
+			Headers headers = response.headers();
+			for (String str : headers.names()) {
+				map.put(str, headers.get(str));
 			}
-			return md5;
-		} catch (NoSuchAlgorithmException nsae) {
-			logger.fatal("Major problems with your Java configuration", nsae);
-			return null;
+			metaData.setMetaData(map);
+		}
+		return metaData;
+	}
+
+	private String guessMimeType(String path) {
+		FileNameMap fileNameMap = URLConnection.getFileNameMap();
+		String contentTypeFor = fileNameMap.getContentTypeFor(path);
+		if (contentTypeFor == null) {
+			contentTypeFor = "application/octet-stream";
+		}
+		return contentTypeFor;
+	}
+
+	public boolean storeObject(String container, File obj) throws Exception {
+		return storeObjectAs(container, obj, guessMimeType(obj.getName()), obj.getName());
+	}
+
+	public boolean storeObject(String container, File obj, String contentType) throws Exception {
+		return storeObjectAs(container, obj, contentType, obj.getName());
+	}
+
+	public boolean storeObject(String container, byte obj[], String contentType, String name) throws Exception {
+		return storeObject(container, obj, contentType, name, new HashMap<String, String>());
+	}
+
+	public boolean storeObject(String container, byte obj[], String contentType, String name, Map<String, String> metadata) throws Exception {
+		return storeObject(container, obj, contentType, name, metadata, null);
+	}
+
+	public boolean storeObject(String container, byte obj[], String contentType, String name, Map<String, String> metadata, IFilesTransferCallback callback) throws Exception {
+		validContianerName(container);
+		validObjectName(name);
+
+		Map<String, String> map = new HashMap<>();
+		for (String key : metadata.keySet()) {
+			map.put(FilesConstants.X_OBJECT_META + key, metadata.get(key));
 		}
 
-	}
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container).addPathSegment(name);
+		Request request = new Request.Builder()
+				.url(urlBuilder.build())
+				.put(RequestBody.create(MediaType.parse(contentType), obj))
+				.headers(Headers.of(map))
+				.build();
 
-	/**
-	 * Encode any unicode characters that will cause us problems.
-	 *
-	 * @param str
-	 * @return The string encoded for a URI
-	 */
-	public static String sanitizeForURI(String str) {
-		URLCodec codec = new URLCodec();
-		try {
-			return codec.encode(str).replaceAll("\\+", "%20").replaceAll("%2F", "/");
-		} catch (EncoderException ee) {
-			logger.warn("Error trying to encode string for URI", ee);
-			return str;
+		Response response = this.doHttp(request);
+		if (!response.isSuccessful()) {
+			throw new Exception(response.message());
 		}
-	}
-
-	public static String unencodeURI(String str) {
-		URLCodec codec = new URLCodec();
-		try {
-			return codec.decode(str);
-		} catch (DecoderException ee) {
-			logger.warn("Error trying to encode string for URI", ee);
-			return str;
-		}
-
-	}
-
-	/**
-	 * @return The connection timeout used for communicating with the server (in milliseconds)
-	 */
-	public int getConnectionTimeOut() {
-		return connectionTimeOut;
-	}
-
-	/**
-	 * The timeout we will use for communicating with the server (in milliseconds)
-	 *
-	 * @param connectionTimeOut The new timeout for this connection
-	 */
-	public void setConnectionTimeOut(int connectionTimeOut) {
-		this.connectionTimeOut = connectionTimeOut;
-	}
-
-	/**
-	 * @return The storage URL on the other end of the ReST api
-	 */
-	public String getStorageURL() {
-		return storageURL;
-	}
-
-	/**
-	 * @return Get's our storage token.
-	 */
-	public String getStorageToken() {
-		return authToken;
-	}
-
-	/**
-	 * Has this instance of the client authenticated itself?
-	 *
-	 * @return True if we logged in, false otherwise.
-	 */
-	public boolean isLoggedin() {
-		return isLoggedin;
-	}
-
-	/**
-	 * The username we are logged in with.
-	 *
-	 * @return The username
-	 */
-	public String getUserName() {
-		return username;
-	}
-
-	/**
-	 * Set's the username for this client. Note, setting this after login has no real impact unless the <code>login()</code>
-	 * method is called again.
-	 *
-	 * @param userName the username
-	 */
-	public void setUserName(String userName) {
-		this.username = userName;
-	}
-
-	/**
-	 * The password the client will use for the login.
-	 *
-	 * @return The password
-	 */
-	public String getPassword() {
-		return password;
-	}
-
-	/**
-	 * Set's the password for this client. Note, setting this after login has no real impact unless the <code>login()</code>
-	 * method is called again.
-	 *
-	 * @param password The new password
-	 */
-	public void setPassword(String password) {
-		this.password = password;
-	}
-
-	/**
-	 * The URL we will use for Authentication
-	 *
-	 * @return The URL (represented as a string)
-	 */
-	public String getAuthenticationURL() {
-		return authenticationURL;
-	}
-
-	/**
-	 * Changes the URL of the authentication service.  Note, if one is logged in, this doesn't have an effect unless one calls login again.
-	 *
-	 * @param authenticationURL The new authentication URL
-	 */
-	public void setAuthenticationURL(String authenticationURL) {
-		this.authenticationURL = authenticationURL;
-	}
-
-	/**
-	 * @return the useETag
-	 */
-	public boolean getUseETag() {
-		return useETag;
-	}
-
-	/**
-	 * @param useETag the useETag to set
-	 */
-	public void setUseETag(boolean useETag) {
-		this.useETag = useETag;
-	}
-
-
-	private boolean isValidContianerName(String name) {
-		if (name == null) return false;
-		int length = name.length();
-		if (length == 0 || length > FilesConstants.CONTAINER_NAME_LENGTH) return false;
-		if (name.indexOf('/') != -1) return false;
-		//if (name.indexOf('?') != -1) return false;
 		return true;
 	}
 
-	private boolean isValidObjectName(String name) {
-		if (name == null) return false;
-		int length = name.length();
-		if (length == 0 || length > FilesConstants.OBJECT_NAME_LENGTH) return false;
-		//if (name.indexOf('?') != -1) return false;
-		return true;
+	public boolean storeObject(String container, InputStream data, String contentType, String name, Map<String, String> metadata) throws Exception {
+		return this.storeObject(container, org.apache.commons.io.IOUtils.toByteArray(data), contentType, name, metadata);
 	}
 
-	/**
-	 * @return the cdnManagementURL
-	 */
-	public String getCdnManagementURL() {
-		return cdnManagementURL;
+	public boolean storeStreamedObject(String container, InputStream data, String contentType, String name, Map<String, String> metadata) throws Exception {
+		return this.storeObject(container, org.apache.commons.io.IOUtils.toByteArray(data), contentType, name, metadata);
 	}
 }

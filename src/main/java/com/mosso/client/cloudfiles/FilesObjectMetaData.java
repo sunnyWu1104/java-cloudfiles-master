@@ -174,4 +174,16 @@ public class FilesObjectMetaData
     {
         return metaData.containsKey(FilesConstants.X_OBJECT_META.concat(key));
     }
+
+
+    @Override
+    public String toString() {
+        return "FilesObjectMetaData{" +
+                "mimeType='" + mimeType + '\'' +
+                ", contentLength='" + contentLength + '\'' +
+                ", eTag='" + eTag + '\'' +
+                ", lastModified='" + lastModified + '\'' +
+                ", metaData=" + metaData +
+                '}';
+    }
 }

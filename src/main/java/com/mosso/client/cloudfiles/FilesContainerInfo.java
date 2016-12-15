@@ -16,47 +16,36 @@ public class FilesContainerInfo
     private long totalSize;
     private String name;
 
-    /**
-	 * @return the name
-	 */
+	public int getObjectCount() {
+		return objectCount;
+	}
+
+	public void setObjectCount(int objectCount) {
+		this.objectCount = objectCount;
+	}
+
+	public long getTotalSize() {
+		return totalSize;
+	}
+
+	public void setTotalSize(long totalSize) {
+		this.totalSize = totalSize;
+	}
+
 	public String getName() {
 		return name;
 	}
 
-	/**
-	 * @param name the name to set
-	 */
 	public void setName(String name) {
 		this.name = name;
 	}
 
-	/**
-     * @param containerCount The number of objects in the container
-     * @param totalSize      The total size of the container (in bytes)
-     */
-    FilesContainerInfo(String name, int containerCount, long totalSize)
-    {
-    	this.name = name;
-        this.objectCount = containerCount;
-        this.totalSize = totalSize;
-    }
-
-    /**
-     * Returns the number of objects in the container
-     * 
-     * @return The number of objects
-     */
-    public int getObjectCount()
-    {
-        return objectCount;
-    }
-
-    /**
-     * @return The total size of the objects in the container (in bytes)
-     */
-    public long getTotalSize()
-    {
-    	return totalSize;
-    }
-
+	@Override
+	public String toString() {
+		return "FilesContainerInfo{" +
+				"objectCount=" + objectCount +
+				", totalSize=" + totalSize +
+				", name='" + name + '\'' +
+				'}';
+	}
 }
