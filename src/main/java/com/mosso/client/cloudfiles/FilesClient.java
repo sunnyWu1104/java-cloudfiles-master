@@ -67,6 +67,8 @@ public class FilesClient {
 		this(username, password, account, url, connectionTimeOut);
 	}
 
+
+
 	/**
 	 * This method uses the default connection time out of CONNECTON_TIMEOUT and username, password,
 	 * and account from FilesUtil
@@ -99,6 +101,9 @@ public class FilesClient {
 	 * @throws IOException There was an IO error doing network communication
 	 */
 	public boolean login() throws IOException {
+		if (client == null) {
+			client = new OkHttpClient();
+		}
 		Request request = new Request.Builder()
 				.url(authenticationURL)
 				.addHeader(FilesConstants.X_STORAGE_USER, username)
@@ -471,5 +476,29 @@ public class FilesClient {
 
 	public boolean storeStreamedObject(String container, InputStream data, String contentType, String name, Map<String, String> metadata) throws Exception {
 		return this.storeObject(container, org.apache.commons.io.IOUtils.toByteArray(data), contentType, name, metadata);
+	}
+
+	public String getUsername() {
+		return username;
+	}
+
+	public void setUsername(String username) {
+		this.username = username;
+	}
+
+	public String getPassword() {
+		return password;
+	}
+
+	public void setPassword(String password) {
+		this.password = password;
+	}
+
+	public String getAuthenticationURL() {
+		return authenticationURL;
+	}
+
+	public void setAuthenticationURL(String authenticationURL) {
+		this.authenticationURL = authenticationURL;
 	}
 }
