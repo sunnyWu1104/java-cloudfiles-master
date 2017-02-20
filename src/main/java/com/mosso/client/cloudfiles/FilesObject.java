@@ -12,6 +12,15 @@ public class FilesObject
     private long size = -1;
     private String mimeType = null;
     private String lastModified = null;
+    private String hash;
+
+    public String getHash() {
+        return hash;
+    }
+
+    public void setHash(String hash) {
+        this.hash = hash;
+    }
 
     public String getContainer() {
         return container;
@@ -59,5 +68,18 @@ public class FilesObject
 
     public void setLastModified(String lastModified) {
         this.lastModified = lastModified;
+    }
+
+    @Override
+    public String toString() {
+        return "FilesObject{" +
+                "container='" + container + '\'' +
+                ", name='" + name + '\'' +
+                ", md5sum='" + md5sum + '\'' +
+                ", size=" + size +
+                ", mimeType='" + mimeType + '\'' +
+                ", lastModified='" + lastModified + '\'' +
+                ", hash='" + hash + '\'' +
+                '}';
     }
 }

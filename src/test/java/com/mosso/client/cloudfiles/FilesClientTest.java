@@ -62,15 +62,21 @@ public class FilesClientTest {
 
 	@Test
 	public void deleteContainer() throws Exception {
-		filesClient.deleteContainer("xuchuntest2");
+		filesClient.deleteContainer("testCreateContainer2");
 		this.listContainers();
 	}
 
 	@Test
 	public void createContainer() throws Exception {
-		filesClient.createContainer("xuchuntest2");
+		filesClient.createContainer("testCreateContainer3");
 		this.listContainers();
 	}
+	@Test
+	public void updateContainer() throws Exception {
+		filesClient.updateContainer("testCreateContainer3");
+		this.listContainers();
+	}
+
 
 	FilesClient filesClient;
 
@@ -91,7 +97,39 @@ public class FilesClientTest {
 	public void listObjects() throws Exception {
 		List<FilesObject> list = filesClient.listObjects("xuchuntest");
 		for (FilesObject constants : list) {
-			System.out.println(constants.getName());
+			System.out.println(constants.toString());
 		}
 	}
+	@Test
+	public void listObjectInfo() throws Exception {
+		List<FilesObject> list = filesClient.listObjects("temp",4);
+		for (FilesObject constants : list) {
+			System.out.println(constants.toString());
+		}
+		System.out.println(list.size());
+
+		list = filesClient.listObjects("temp",5,"0016bbc3-a582-43a9-a77b-5a7b8009c6d6.jpg");
+		for (FilesObject constants : list) {
+			System.out.println(constants.toString());
+
+		}
+		System.out.println(list.size());
+	}
+
+	@Test
+	public void listObjectsStaringWith() throws Exception {
+		List<FilesObject> list = filesClient.listObjectsStaringWith("temp","","",4,"");
+		for (FilesObject constants : list) {
+			System.out.println(constants.toString());
+		}
+		System.out.println(list.size());
+
+		list = filesClient.listObjects("temp",5,"0016bbc3-a582-43a9-a77b-5a7b8009c6d6.jpg");
+		for (FilesObject constants : list) {
+			System.out.println(constants.toString());
+
+		}
+		System.out.println(list.size());
+	}
+
 }

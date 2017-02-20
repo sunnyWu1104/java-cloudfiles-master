@@ -194,7 +194,6 @@ public class FilesClient {
 		Request request = new Request.Builder().get().url(urlBuilder.build()).build();
 		Response response = this.doHttp(request);
 		List<FilesContainerInfo> containerList = JSON.parseArray(response.body().string(), FilesContainerInfo.class);
-
 		return containerList;
 	}
 
@@ -220,6 +219,9 @@ public class FilesClient {
 	}
 
 	public List<FilesObject> listObjectsStaringWith(String container, String startsWith, String path, int limit, String marker) throws Exception {
+		return listObjectsStaringWith(container, startsWith, path, limit, marker, 0);
+	}
+	public List<FilesObject> listObjectsStaringWith(String container, String startsWith, String path, int limit, String marker,int delimit) throws Exception {
 		validContianerName(container);
 		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container);
 		urlBuilder.addQueryParameter("format", "json");
@@ -232,9 +234,13 @@ public class FilesClient {
 		if (limit > 0) {
 			urlBuilder.addQueryParameter("limit", String.valueOf(limit));
 		}
+		if (delimit > 0) {
+			urlBuilder.addQueryParameter("delimiter", String.valueOf(delimit));
+		}
 		if (marker != null) {
 			urlBuilder.addQueryParameter("marker", marker);
 		}
+
 		Request request = new Request.Builder().get().url(urlBuilder.build()).build();
 		Response response = this.doHttp(request);
 		List<FilesObject> objectList = JSON.parseArray(response.body().string(), FilesObject.class);
@@ -295,6 +301,22 @@ public class FilesClient {
 		validContianerName(container);
 		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container);
 		Request request = new Request.Builder().url(urlBuilder.build()).put(RequestBody.create(MediaType.parse("text/plan"), container)).build();
+		Response response = this.doHttp(request);
+		if (!response.isSuccessful()) {
+			throw new Exception(response.message());
+		}
+		//更新權限
+		this.updateContainer(container);
+	}
+
+	private void updateContainer(String container) throws Exception {
+		validContianerName(container);
+		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container);
+		Request request = new Request.Builder()
+				.url(urlBuilder.build())
+				.addHeader("X-Container-Read",".r:*")
+				.post(RequestBody.create(MediaType.parse("text/plan"), container))
+				.build();
 		Response response = this.doHttp(request);
 		if (!response.isSuccessful()) {
 			throw new Exception(response.message());

@@ -12,24 +12,33 @@ package com.mosso.client.cloudfiles;
  */
 public class FilesContainerInfo
 {
-    private int objectCount;
-    private long totalSize;
+    private long bytes;
+    private long count;
     private String name;
 
-	public int getObjectCount() {
-		return objectCount;
+	@Override
+	public String toString() {
+		return "FilesContainerInfo{" +
+				"bytes=" + bytes +
+				", count=" + count +
+				", name='" + name + '\'' +
+				'}';
 	}
 
-	public void setObjectCount(int objectCount) {
-		this.objectCount = objectCount;
+	public long getBytes() {
+		return bytes;
 	}
 
-	public long getTotalSize() {
-		return totalSize;
+	public void setBytes(long bytes) {
+		this.bytes = bytes;
 	}
 
-	public void setTotalSize(long totalSize) {
-		this.totalSize = totalSize;
+	public long getCount() {
+		return count;
+	}
+
+	public void setCount(long count) {
+		this.count = count;
 	}
 
 	public String getName() {
@@ -38,14 +47,5 @@ public class FilesContainerInfo
 
 	public void setName(String name) {
 		this.name = name;
-	}
-
-	@Override
-	public String toString() {
-		return "FilesContainerInfo{" +
-				"objectCount=" + objectCount +
-				", totalSize=" + totalSize +
-				", name='" + name + '\'' +
-				'}';
 	}
 }
