@@ -68,12 +68,7 @@ public class FilesClientTest {
 
 	@Test
 	public void createContainer() throws Exception {
-		filesClient.createContainer("testCreateContainer3");
-		this.listContainers();
-	}
-	@Test
-	public void updateContainer() throws Exception {
-		filesClient.updateContainer("testCreateContainer3");
+		filesClient.createContainer("testCreateContainer4");
 		this.listContainers();
 	}
 

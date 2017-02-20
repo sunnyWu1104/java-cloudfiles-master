@@ -300,16 +300,17 @@ public class FilesClient {
 	public void createContainer(String container) throws Exception {
 		validContianerName(container);
 		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container);
-		Request request = new Request.Builder().url(urlBuilder.build()).put(RequestBody.create(MediaType.parse("text/plan"), container)).build();
+		Request request = new Request.Builder()
+				.url(urlBuilder.build())
+				.addHeader("X-Container-Read",".r:*")
+				.put(RequestBody.create(MediaType.parse("text/plan"), container)).build();
 		Response response = this.doHttp(request);
 		if (!response.isSuccessful()) {
 			throw new Exception(response.message());
 		}
-		//更新權限
-		this.updateContainer(container);
 	}
 
-	private void updateContainer(String container) throws Exception {
+	public void updateContainer(String container) throws Exception {
 		validContianerName(container);
 		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container);
 		Request request = new Request.Builder()
