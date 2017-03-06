@@ -11,6 +11,7 @@ public class FilesObject
     private String md5sum = null;
     private long size = -1;
     private String mimeType = null;
+    private String contentType = null;
     private String lastModified = null;
     private String hash;
 
@@ -78,8 +79,17 @@ public class FilesObject
                 ", md5sum='" + md5sum + '\'' +
                 ", size=" + size +
                 ", mimeType='" + mimeType + '\'' +
+                ", contentType='" + contentType + '\'' +
                 ", lastModified='" + lastModified + '\'' +
                 ", hash='" + hash + '\'' +
                 '}';
+    }
+
+    public String getContentType() {
+        return contentType;
+    }
+
+    public void setContentType(String contentType) {
+        this.contentType = contentType;
     }
 }
