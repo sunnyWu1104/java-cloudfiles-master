@@ -219,9 +219,9 @@ public class FilesClient {
 	}
 
 	public List<FilesObject> listObjectsStaringWith(String container, String startsWith, String path, int limit, String marker) throws Exception {
-		return listObjectsStaringWith(container, startsWith, path, limit, marker, 0);
+		return listObjectsStaringWith(container, startsWith, path, limit, marker, null);
 	}
-	public List<FilesObject> listObjectsStaringWith(String container, String startsWith, String path, int limit, String marker,int delimit) throws Exception {
+	public List<FilesObject> listObjectsStaringWith(String container, String startsWith, String path, int limit, String marker,String delimiter) throws Exception {
 		validContianerName(container);
 		HttpUrl.Builder urlBuilder = HttpUrl.parse(storageURL).newBuilder().addPathSegment(container);
 		urlBuilder.addQueryParameter("format", "json");
@@ -234,8 +234,8 @@ public class FilesClient {
 		if (limit > 0) {
 			urlBuilder.addQueryParameter("limit", String.valueOf(limit));
 		}
-		if (delimit > 0) {
-			urlBuilder.addQueryParameter("delimiter", String.valueOf(delimit));
+		if (delimiter != null) {
+			urlBuilder.addQueryParameter("delimiter", delimiter);
 		}
 		if (marker != null) {
 			urlBuilder.addQueryParameter("marker", marker);

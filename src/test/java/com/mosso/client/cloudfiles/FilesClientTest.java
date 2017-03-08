@@ -6,6 +6,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -119,7 +120,25 @@ public class FilesClientTest {
 		}
 		System.out.println(list.size());
 
-		list = filesClient.listObjects("temp",5,"0016bbc3-a582-43a9-a77b-5a7b8009c6d6.jpg");
+		list = filesClient.listObjects("temp",5,"导入模板");
+		for (FilesObject constants : list) {
+			System.out.println(constants.toString());
+
+		}
+		System.out.println(list.size());
+	}
+
+	@Test
+	public void listObjectsEndWith() throws Exception {
+//		List<FilesObject> list = filesClient.listObjectsStaringWith("temp","","",4,"0016bbc3-a582-43a9-a77b-5a7b8009c6d6.jpg");
+		List<FilesObject> list = new ArrayList<>();
+
+		for (FilesObject constants : list) {
+			System.out.println(constants.toString());
+		}
+		System.out.println(list.size());
+
+		list = filesClient.listObjectsStaringWith("temp","000","",1,"0016bbc3-a582-43a9-a77b-5a7b8009c6d6.jpg",".jpeg");
 		for (FilesObject constants : list) {
 			System.out.println(constants.toString());
 
