@@ -34,7 +34,7 @@ public class FilesClient {
 	private static Logger logger = Logger.getLogger(FilesClient.class);
 
 	/**
-	 * @param username          The username to log in to
+	 * @param username          The username to log in to  d
 	 * @param password          The password
 	 * @param account           The Cloud Files account to use
 	 * @param connectionTimeOut The connection timeout, in ms.
